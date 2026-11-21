@@ -1,19 +1,27 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { isSupabaseConfigured, supabaseConfigError } from '../lib/supabase';
 import {
   requestPasswordReset,
   resendSignupOtp,
   signInWithSupabase,
   signUpWithSupabase,
+  updatePasswordForRecoverySession,
   verifyRecoveryOtpAndSetPassword,
   verifySignupOtp,
 } from '../services/auth';
 import type { AuthMode, ScreenMode, UserProfile } from '../types';
 import { BrandMark, BrandWordmark } from './BrandLogo';
 
+export interface AuthNotice {
+  error?: string;
+  info?: string;
+  recoverySession?: boolean;
+}
+
 interface SplashAuthProps {
   screen: Exclude<ScreenMode, 'app'>;
   authMode: AuthMode;
+  initialNotice?: AuthNotice;
   onContinueFromSplash: () => void;
   onChangeAuthMode: (mode: AuthMode) => void;
   onAuthenticate: (user: UserProfile, isSignup: boolean) => void;
@@ -23,6 +31,7 @@ interface SplashAuthProps {
 export const SplashAuth: React.FC<SplashAuthProps> = ({
   screen,
   authMode,
+  initialNotice,
   onContinueFromSplash,
   onChangeAuthMode,
   onAuthenticate,
@@ -30,6 +39,7 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
 }) => {
   const [forgotMode, setForgotMode] = useState(false);
   const [otpStep, setOtpStep] = useState(false);
+  const [recoveryLinkMode, setRecoveryLinkMode] = useState(false);
   const [signupOtpStep, setSignupOtpStep] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -41,6 +51,23 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
   const [error, setError] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!initialNotice) return;
+    if (initialNotice.recoverySession) {
+      setForgotMode(true);
+      setRecoveryLinkMode(true);
+      setOtpStep(false);
+      setSignupOtpStep(false);
+    }
+    if (initialNotice.error) {
+      setError(initialNotice.error);
+      setInfoMsg('');
+    } else if (initialNotice.info) {
+      setInfoMsg(initialNotice.info);
+      setError('');
+    }
+  }, [initialNotice]);
 
   if (screen === 'splash') {
     return (
@@ -127,7 +154,7 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
         if (result.needsEmailConfirmation) {
           setSignupOtpStep(true);
           setInfoMsg(
-            'Account created! Confirm via the link in your email, or enter your 6-digit verification code below.',
+            `Account created! We sent a confirmation link to ${cleanEmail}. Click that link in your email to confirm your account, or enter a 6-digit code below if included.`,
           );
           return;
         }
@@ -140,7 +167,7 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
           setSignupOtpStep(true);
           setInfoMsg(
             result.error ||
-              'Your email is not confirmed yet. Enter your 6-digit verification code below.',
+              'Your email is not confirmed yet. Click the confirmation link sent to your email or resend it below.',
           );
           return;
         }
@@ -172,7 +199,9 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
         setError(res.error);
         return;
       }
-      setInfoMsg('A fresh verification email has been sent. Check your inbox.');
+      setInfoMsg(
+        `A fresh confirmation email has been sent to ${cleanEmail}. Check your inbox and spam folder.`,
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -182,6 +211,39 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
     e.preventDefault();
     if (isSubmitting) return;
 
+    if (!isSupabaseConfigured) {
+      setError(supabaseConfigError);
+      return;
+    }
+
+    if (recoveryLinkMode) {
+      if (newPassword.length < 6) {
+        setError('New password must be at least 6 characters.');
+        return;
+      }
+      setError('');
+      setInfoMsg('');
+      setIsSubmitting(true);
+      try {
+        const res = await updatePasswordForRecoverySession(newPassword);
+        if (res.error) {
+          setError(res.error);
+          return;
+        }
+        setForgotMode(false);
+        setRecoveryLinkMode(false);
+        setOtpStep(false);
+        setNewPassword('');
+        onToast('Password updated. Welcome back.');
+        if (res.user) {
+          onAuthenticate(res.user, false);
+        }
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     const cleanReset = resetEmail.trim().toLowerCase();
     if (!cleanReset || !cleanReset.includes('@')) {
       setError('Enter a valid email address.');
@@ -189,11 +251,6 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
     }
     setError('');
     setInfoMsg('');
-
-    if (!isSupabaseConfigured) {
-      setError(supabaseConfigError);
-      return;
-    }
 
     setIsSubmitting(true);
     try {
@@ -205,7 +262,7 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
         }
         setOtpStep(true);
         setInfoMsg(
-          'If that email has an account, check your inbox for a 6-digit recovery code or link.',
+          'If that email has an account, check your inbox for a recovery link or 6-digit code.',
         );
       } else {
         if (!otpCode.trim()) {
@@ -251,61 +308,85 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
         {forgotMode ? (
           <form onSubmit={handleResetSubmit} className="mt-6">
             <h1 className="text-xl font-bold text-slate-900">
-              Reset your password
+              {recoveryLinkMode ? 'Set a new password' : 'Reset your password'}
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              {otpStep
+              {recoveryLinkMode
+                ? 'Choose a new password for your Diadikasia account.'
+                : otpStep
                 ? 'Enter the code from your email and choose a new password.'
-                : 'Enter your email and we’ll send a reset code or link.'}
+                : 'Enter your email and we’ll send a reset link or code.'}
             </p>
 
-            <label
-              htmlFor="reset-email"
-              className="block text-xs font-semibold text-slate-700 mt-5 mb-1.5"
-            >
-              Email
-            </label>
-            <input
-              id="reset-email"
-              type="email"
-              value={resetEmail}
-              onChange={(e) => setResetEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="w-full border border-slate-300 bg-white rounded-xl px-3.5 py-2.5 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-            />
-
-            {otpStep && isSupabaseConfigured && (
+            {recoveryLinkMode ? (
               <>
                 <label
-                  htmlFor="reset-otp"
-                  className="block text-xs font-semibold text-slate-700 mt-4 mb-1.5"
-                >
-                  Recovery code
-                </label>
-                <input
-                  id="reset-otp"
-                  type="text"
-                  inputMode="numeric"
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value)}
-                  placeholder="6-digit code"
-                  className="w-full border border-slate-300 bg-white rounded-xl px-3.5 py-2.5 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-
-                <label
-                  htmlFor="reset-new-password"
-                  className="block text-xs font-semibold text-slate-700 mt-4 mb-1.5"
+                  htmlFor="reset-link-new-password"
+                  className="block text-xs font-semibold text-slate-700 mt-5 mb-1.5"
                 >
                   New password
                 </label>
                 <input
-                  id="reset-new-password"
+                  id="reset-link-new-password"
                   type="password"
+                  autoComplete="new-password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="••••••••"
                   className="w-full border border-slate-300 bg-white rounded-xl px-3.5 py-2.5 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
+              </>
+            ) : (
+              <>
+                <label
+                  htmlFor="reset-email"
+                  className="block text-xs font-semibold text-slate-700 mt-5 mb-1.5"
+                >
+                  Email
+                </label>
+                <input
+                  id="reset-email"
+                  type="email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full border border-slate-300 bg-white rounded-xl px-3.5 py-2.5 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+
+                {otpStep && isSupabaseConfigured && (
+                  <>
+                    <label
+                      htmlFor="reset-otp"
+                      className="block text-xs font-semibold text-slate-700 mt-4 mb-1.5"
+                    >
+                      Recovery code
+                    </label>
+                    <input
+                      id="reset-otp"
+                      type="text"
+                      inputMode="numeric"
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value)}
+                      placeholder="6-digit code"
+                      className="w-full border border-slate-300 bg-white rounded-xl px-3.5 py-2.5 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+
+                    <label
+                      htmlFor="reset-new-password"
+                      className="block text-xs font-semibold text-slate-700 mt-4 mb-1.5"
+                    >
+                      New password
+                    </label>
+                    <input
+                      id="reset-new-password"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full border border-slate-300 bg-white rounded-xl px-3.5 py-2.5 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                  </>
+                )}
               </>
             )}
 
@@ -331,7 +412,7 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
             >
               {isSubmitting
                 ? 'Please wait…'
-                : otpStep
+                : recoveryLinkMode || otpStep
                 ? 'Update password'
                 : 'Send reset email'}
             </button>
@@ -341,6 +422,7 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
                 type="button"
                 onClick={() => {
                   setForgotMode(false);
+                  setRecoveryLinkMode(false);
                   setOtpStep(false);
                   setError('');
                   setInfoMsg('');
@@ -350,7 +432,7 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
                 Back to sign in
               </button>
 
-              {isSupabaseConfigured && !otpStep && (
+              {isSupabaseConfigured && !otpStep && !recoveryLinkMode && (
                 <button
                   type="button"
                   onClick={() => {
@@ -417,11 +499,15 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
 
             {signupOtpStep ? (
               <div>
+                <p className="text-xs text-slate-600 mt-4">
+                  Open the confirmation link in your email to activate your
+                  account and continue automatically.
+                </p>
                 <label
                   htmlFor="signup-otp"
-                  className="block text-xs font-semibold text-slate-700 mt-4 mb-1.5"
+                  className="block text-xs font-semibold text-slate-700 mt-3 mb-1.5"
                 >
-                  Email confirmation code
+                  Verification code (optional)
                 </label>
                 <input
                   id="signup-otp"
@@ -429,7 +515,7 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
                   inputMode="numeric"
                   value={signupOtpCode}
                   onChange={(e) => setSignupOtpCode(e.target.value)}
-                  placeholder="6-digit code"
+                  placeholder="6-digit code (if provided)"
                   className="w-full border border-slate-300 bg-white rounded-xl px-3.5 py-2.5 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
@@ -553,7 +639,7 @@ export const SplashAuth: React.FC<SplashAuthProps> = ({
                   onClick={handleResendSignupOtp}
                   className="text-xs font-semibold text-slate-600 hover:text-slate-900 disabled:opacity-50 py-2"
                 >
-                  Resend code
+                  Resend confirmation email
                 </button>
               </div>
             ) : (

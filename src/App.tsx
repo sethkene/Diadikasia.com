@@ -18,7 +18,7 @@ import { ProcedureDetailModal } from './components/ProcedureDetailModal';
 import { ProfileView } from './components/ProfileView';
 import { ReelsView } from './components/ReelsView';
 import { ReviewQueueModal } from './components/ReviewQueueModal';
-import { SplashAuth } from './components/SplashAuth';
+import { SplashAuth, type AuthNotice } from './components/SplashAuth';
 import {
   CATEGORIES,
   DISCOVER_PEOPLE,
@@ -81,6 +81,8 @@ import { isSupabaseConfigured, supabase } from './lib/supabase';
 import {
   fetchDirectoryProfiles,
   fetchMyProfile,
+  isEmailVerified,
+  processAuthCallbackFromUrl,
   signOutSupabase,
   updateMySharePopupsPreference,
 } from './services/auth';
@@ -143,6 +145,9 @@ export default function App() {
 
   const [screen, setScreen] = useState<ScreenMode>('splash');
   const [authMode, setAuthMode] = useState<AuthMode>('in');
+  const [authNotice, setAuthNotice] = useState<AuthNotice | undefined>(
+    undefined,
+  );
   const [user, setUser] = useState<UserProfile>({
     email: '',
     name: '',
@@ -231,6 +236,9 @@ export default function App() {
   const [toastVisible, setToastVisible] = useState<boolean>(false);
   const toastTimerRef = useRef<number | null>(null);
   const nextIdRef = useRef<number>(Date.now());
+  const appliedAuthUserIdRef = useRef<string | null>(null);
+  const inFlightAuthUserIdRef = useRef<string | null>(null);
+  const recoveryModeRef = useRef<boolean>(false);
 
   // Persist RBAC, procedures, study progress, and community state
   useEffect(() => {
@@ -397,9 +405,13 @@ export default function App() {
     });
   }, []);
 
-  // Sync active Supabase Auth session & profiles on startup and auth events
+  // Sync active Supabase Auth session, email confirmation callbacks & profiles on startup
   useEffect(() => {
-    if (!isSupabaseConfigured || !supabase) {
+    const client = supabase;
+    if (!isSupabaseConfigured || !client) {
+      appliedAuthUserIdRef.current = null;
+      inFlightAuthUserIdRef.current = null;
+      recoveryModeRef.current = false;
       try {
         localStorage.removeItem(STORAGE_KEYS.user);
       } catch {
@@ -409,38 +421,30 @@ export default function App() {
       setScreen((prev) => (prev === 'app' ? 'auth' : prev));
       return;
     }
+
     let active = true;
+    let unsubscribeAuth: (() => void) | null = null;
 
     const mergeDirectory = (
       prev: UserProfile[],
       directory: UserProfile[],
     ): UserProfile[] => {
       const keyFor = (u: UserProfile) =>
-        u.email ? `e:${u.email.toLowerCase()}` : u.id ? `id:${u.id}` : `n:${u.name.toLowerCase()}`;
+        u.email
+          ? `e:${u.email.toLowerCase()}`
+          : u.id
+          ? `id:${u.id}`
+          : `n:${u.name.toLowerCase()}`;
       const map = new Map<string, UserProfile>();
       for (const item of prev) map.set(keyFor(item), item);
       for (const remote of directory) map.set(keyFor(remote), remote);
       return Array.from(map.values());
     };
 
-    const applyAuthenticatedProfile = async (sessionUser: {
-      id: string;
-      email?: string;
-      user_metadata?: Record<string, unknown>;
-    }) => {
-      const profile = await fetchMyProfile(sessionUser.id);
-      if (!active) return;
-
-      const resolvedProfile: UserProfile = profile || {
-        id: sessionUser.id,
-        email: sessionUser.email || '',
-        name:
-          (typeof sessionUser.user_metadata?.name === 'string' &&
-            sessionUser.user_metadata.name) ||
-          (sessionUser.email ? sessionUser.email.split('@')[0] : 'Learner'),
-        role: 'learner',
-      };
-
+    const commitAuthenticatedProfile = async (resolvedProfile: UserProfile) => {
+      if (resolvedProfile.id) {
+        appliedAuthUserIdRef.current = resolvedProfile.id;
+      }
       const directory = await fetchDirectoryProfiles(
         resolvedProfile.role === 'admin',
       );
@@ -459,62 +463,174 @@ export default function App() {
       } catch {
         // ignore
       }
+      setAuthNotice(undefined);
       setScreen('app');
     };
 
-    const clearSessionState = () => {
+    const applyAuthenticatedProfile = async (sessionUser: {
+      id: string;
+      email?: string;
+      email_confirmed_at?: string | null;
+      user_metadata?: Record<string, unknown>;
+    }) => {
+      if (!isEmailVerified(sessionUser)) {
+        appliedAuthUserIdRef.current = null;
+        inFlightAuthUserIdRef.current = null;
+        void signOutSupabase();
+        clearSessionState(
+          {
+            info: 'Please confirm your email using the link sent to your inbox before continuing.',
+          },
+          true,
+        );
+        return;
+      }
+
+      inFlightAuthUserIdRef.current = sessionUser.id;
+      try {
+        const profile = await fetchMyProfile(sessionUser.id);
+        if (!active) return;
+
+        const resolvedProfile: UserProfile = profile || {
+          id: sessionUser.id,
+          email: sessionUser.email || '',
+          name:
+            (typeof sessionUser.user_metadata?.name === 'string' &&
+              sessionUser.user_metadata.name) ||
+            (sessionUser.email ? sessionUser.email.split('@')[0] : 'Learner'),
+          role: 'learner',
+        };
+
+        await commitAuthenticatedProfile(resolvedProfile);
+      } finally {
+        if (inFlightAuthUserIdRef.current === sessionUser.id) {
+          inFlightAuthUserIdRef.current = null;
+        }
+      }
+    };
+
+    const clearSessionState = (notice?: AuthNotice, forceAuthScreen = false) => {
+      appliedAuthUserIdRef.current = null;
+      inFlightAuthUserIdRef.current = null;
       try {
         localStorage.removeItem(STORAGE_KEYS.user);
       } catch {
         // ignore
       }
       setUser({ email: '', name: '', role: 'learner' });
-      setScreen((prev) => (prev === 'app' ? 'auth' : prev));
+      if (notice) {
+        setAuthNotice(notice);
+      }
+      setScreen((prev) =>
+        forceAuthScreen ? 'auth' : prev === 'app' ? 'auth' : prev,
+      );
     };
 
-    supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (!active) return;
-        if (data.session?.user) {
-          void applyAuthenticatedProfile(data.session.user);
-        } else {
-          clearSessionState();
-        }
-      })
-      .catch(() => {
-        if (!active) return;
-        clearSessionState();
-      });
+    const initAuth = async () => {
+      const callback = await processAuthCallbackFromUrl();
+      if (!active) return;
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (!active) return;
-        if (
-          (event === 'INITIAL_SESSION' ||
+      if (callback.handled) {
+        if (callback.error) {
+          clearSessionState({ error: callback.error }, true);
+        } else if (callback.recovery) {
+          recoveryModeRef.current = true;
+          setAuthNotice({
+            recoverySession: true,
+            info: 'Reset link verified. Choose a new password to continue.',
+          });
+          setScreen('auth');
+        } else if (callback.verified && callback.user) {
+          appliedAuthUserIdRef.current = callback.user.id || null;
+          await commitAuthenticatedProfile(callback.user);
+          if (active) {
+            showToast('Email confirmed. Welcome to Diadikasia.');
+          }
+        }
+      }
+
+      const { data: listener } = client.auth.onAuthStateChange(
+        (event, session) => {
+          if (!active) return;
+
+          if (event === 'PASSWORD_RECOVERY') {
+            recoveryModeRef.current = true;
+            setAuthNotice({
+              recoverySession: true,
+              info: 'Reset link verified. Choose a new password to continue.',
+            });
+            setScreen('auth');
+            return;
+          }
+
+          if (event === 'SIGNED_OUT') {
+            recoveryModeRef.current = false;
+            clearSessionState(undefined, false);
+            setScreen((prev) => (prev === 'splash' ? prev : 'auth'));
+            return;
+          }
+
+          if (
+            event === 'INITIAL_SESSION' ||
             event === 'SIGNED_IN' ||
             event === 'TOKEN_REFRESHED' ||
-            event === 'USER_UPDATED') &&
-          session?.user
-        ) {
-          void applyAuthenticatedProfile(session.user);
-        } else if (event === 'SIGNED_OUT') {
-          try {
-            localStorage.removeItem(STORAGE_KEYS.user);
-          } catch {
-            // ignore
+            event === 'USER_UPDATED'
+          ) {
+            if (!session?.user) {
+              if (event === 'INITIAL_SESSION') {
+                clearSessionState(undefined, false);
+              }
+              return;
+            }
+
+            if (!isEmailVerified(session.user)) {
+              void signOutSupabase();
+              clearSessionState(
+                {
+                  info: 'Please confirm your email using the link sent to your inbox before continuing.',
+                },
+                true,
+              );
+              return;
+            }
+
+            if (recoveryModeRef.current) {
+              return;
+            }
+
+            if (
+              event !== 'USER_UPDATED' &&
+              (appliedAuthUserIdRef.current === session.user.id ||
+                inFlightAuthUserIdRef.current === session.user.id)
+            ) {
+              setScreen('app');
+              return;
+            }
+
+            void applyAuthenticatedProfile(session.user);
           }
-          setUser({ email: '', name: '', role: 'learner' });
-          setScreen((prev) => (prev === 'splash' ? prev : 'auth'));
-        }
-      },
-    );
+        },
+      );
+
+      unsubscribeAuth = () => listener.subscription.unsubscribe();
+      if (!active) {
+        unsubscribeAuth();
+        unsubscribeAuth = null;
+      }
+    };
+
+    void initAuth().catch(() => {
+      if (!active) return;
+      clearSessionState(undefined, false);
+    });
 
     return () => {
       active = false;
-      listener.subscription.unsubscribe();
+      if (unsubscribeAuth) {
+        unsubscribeAuth();
+      }
     };
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (screen !== 'splash') return;
@@ -525,6 +641,12 @@ export default function App() {
   }, [screen]);
 
   const handleAuthenticate = (profile: UserProfile, isNewAccount: boolean) => {
+    recoveryModeRef.current = false;
+    setAuthNotice(undefined);
+    if (profile.id) {
+      appliedAuthUserIdRef.current = profile.id;
+    }
+
     if (isNewAccount || isSupabaseConfigured) {
       setAccounts((prev) => {
         const idx = prev.findIndex(
@@ -569,6 +691,10 @@ export default function App() {
   };
 
   const handleSignOut = () => {
+    appliedAuthUserIdRef.current = null;
+    inFlightAuthUserIdRef.current = null;
+    recoveryModeRef.current = false;
+    setAuthNotice(undefined);
     void signOutSupabase();
     try {
       localStorage.removeItem(STORAGE_KEYS.user);
@@ -1566,6 +1692,7 @@ export default function App() {
         <SplashAuth
           screen={screen}
           authMode={authMode}
+          initialNotice={authNotice}
           onContinueFromSplash={() => setScreen('auth')}
           onChangeAuthMode={setAuthMode}
           onAuthenticate={handleAuthenticate}
