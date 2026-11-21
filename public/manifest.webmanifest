@@ -1,0 +1,12 @@
+{
+  "name": "Diadikasia",
+  "short_name": "Diadikasia",
+  "icons": [
+    {
+      "src": "/assets/icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "1024x1024",
+      "purpose": "any maskable"
+    }
+  ]
+}

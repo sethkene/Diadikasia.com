@@ -1,0 +1,6 @@
+{
+  "name": "Diadikasia",
+  "description": "Clinical procedures learning platform taught by real nursing and surgical instructors across Africa, Europe, and Asia.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

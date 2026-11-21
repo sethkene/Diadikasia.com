@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diadikasia</title>
+<style>
+:root{--s9:#0f172a;--s8:#1e293b;--s7:#334155;--s5:#64748b;--s4:#94a3b8;--s3:#cbd5e1;--s2:#e2e8f0;--s1:#f1f5f9;--s0:#f8fafc;--t3:#5eead4;--t4:#2dd4bf;--t5:#14b8a6;--t6:#0d9488;--t7:#0f766e;--tb:#f0fdfa;--bad:#b91c1c}
+*{box-sizing:border-box}
+html{background:var(--s1)}
+body{margin:0 auto;max-width:440px;min-height:100vh;background:var(--s0);color:var(--s9);font:14px/1.45 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;position:relative}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.row{display:flex;align-items:center}.bt{justify-content:space-between}
+.m{color:var(--s5)}.sm{font-size:12px}
+svg.i{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.logo{width:36px;height:36px;border-radius:12px;background:var(--t5);color:#fff;display:grid;place-items:center;flex:none}
+/* splash + auth */
+.splash{min-height:100vh;background:#fff;color:var(--s9);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+.lm{width:38px;height:38px;border-radius:10px;background:#fff;display:grid;place-items:center;flex:none}
+.wm{font-weight:800;letter-spacing:-.5px}
+.acts{display:flex;gap:8px;margin-top:12px}.acts .btn{margin:0;padding:10px 6px;font-size:12.5px}
+.btn.g{background:#15803d}.btn.r{background:#fff;color:var(--bad);border:1px solid var(--bad)}
+.auth{padding:28px 22px}
+.auth h2{font-size:22px;margin:18px 0 2px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--s2);border-radius:10px;padding:3px;gap:3px;margin:18px 0 6px}
+.tabs button{border:0;background:none;border-radius:8px;padding:9px;font-weight:600;color:var(--s5)}
+.tabs button.on{background:#fff;color:var(--s9);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+label{display:block;font-size:12px;font-weight:600;color:var(--s7);margin:12px 0 4px}
+input[type=text],input[type=email],input[type=password],input[type=datetime-local],select{width:100%;border:1px solid var(--s3);background:#fff;border-radius:10px;padding:11px 12px;min-height:44px}
+.btn{width:100%;border:0;background:var(--t6);color:#fff;border-radius:12px;padding:13px;font-weight:700;margin-top:18px;min-height:46px}
+.btn.s{background:#fff;color:var(--s9);border:1px solid var(--s3)}
+.lnk{background:none;border:0;color:var(--t6);font-weight:600;padding:8px 0}
+.err{color:var(--bad);font-size:12.5px;margin-top:4px}
+/* shell */
+header{background:var(--s9);color:#fff;padding:12px 16px 10px;position:sticky;top:0;z-index:5}
+.brand{font-weight:800;font-size:16px;letter-spacing:-.3px}.bs{font-size:10px;color:var(--t4);letter-spacing:.8px}
+.hb{border:1px solid rgba(20,184,166,.35);background:rgba(20,184,166,.2);color:var(--t3);border-radius:12px;padding:7px 10px;font-size:12px;font-weight:600}
+.sw{display:grid;grid-template-columns:1fr 1fr;background:var(--s8);border:1px solid var(--s7);border-radius:12px;padding:4px;margin-top:10px;gap:4px}
+.sw button{border:0;background:none;color:var(--s4);border-radius:9px;padding:8px;font-weight:700;font-size:13px}
+.sw button.on{background:var(--t5);color:#fff}
+.rg{display:flex;align-items:center;gap:6px;margin-top:8px;overflow-x:auto;scrollbar-width:none}
+.rg span{font-size:11px;color:var(--s4);flex:none}
+.rg button{flex:none;border:1px solid var(--s7);background:none;color:var(--s3);border-radius:999px;padding:4px 11px;font-size:12px;font-weight:600}
+.rg button.on{background:var(--t6);border-color:var(--t6);color:#fff}
+main{padding:14px 16px 96px}
+.h{font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--s5);margin:0 0 8px}
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin-bottom:14px}
+.chip{flex:none;border:1px solid var(--s2);background:#fff;border-radius:12px;padding:7px 13px;font-size:12.5px;font-weight:600;color:var(--s7)}
+.chip.on{background:var(--s9);border-color:var(--s9);color:#fff}
+.card{display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--s2);border-radius:16px;overflow:hidden;margin-bottom:12px;padding:0}
+.th{height:132px;position:relative;color:#fff;display:grid;place-items:center}
+.tag{position:absolute;top:10px;left:10px;background:rgba(15,23,42,.85);border-radius:5px;padding:2px 8px;font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase}
+.dur{position:absolute;right:10px;bottom:10px;background:rgba(0,0,0,.7);border-radius:8px;padding:2px 8px;font-size:11px}
+.cb{padding:12px 14px}
+.ct{font-weight:700;font-size:14.5px}
+.pill{display:inline-block;background:var(--tb);color:var(--t7);border-radius:5px;padding:2px 8px;font-size:11px;font-weight:600}
+.ok{display:inline-flex;gap:4px;align-items:center;background:#dcfce7;color:#166534;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700}
+.wt{background:#fef3c7;color:#92400e}
+.ft{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--s1)}
+.pn{background:#fff;border:1px solid var(--s2);border-radius:14px;padding:14px;margin-bottom:12px}
+nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:440px;background:#fff;border-top:1px solid var(--s2);display:flex;padding:6px 2px calc(6px + env(safe-area-inset-bottom,0px));z-index:6}
+nav button{flex:1;background:none;border:0;color:var(--s4);font-size:10.5px;font-weight:600;display:grid;justify-items:center;gap:2px;min-height:48px}
+nav button.on{color:var(--t6)}
+.ov{position:fixed;inset:0;background:var(--s0);z-index:20;overflow-y:auto;max-width:440px;margin:0 auto}
+.ovh{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--s2);padding:10px 14px;display:flex;align-items:center;justify-content:space-between;z-index:2}
+.ovh button{border:0;background:none;color:var(--t6);font-weight:700;padding:6px}
+.vid{background:var(--s9);aspect-ratio:16/9;display:grid;place-items:center;color:#fff;position:relative}
+.vid video{width:100%;height:100%}
+.pb{width:56px;height:56px;border-radius:50%;border:0;background:rgba(255,255,255,.92);color:var(--s9);display:grid;place-items:center}
+.bar{height:6px;background:var(--s2);border-radius:3px;overflow:hidden;margin:6px 0}.bar i{display:block;height:100%;background:var(--t5)}
+.step{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--s1);width:100%;background:none;border-left:0;border-right:0;border-bottom:0;text-align:left}
+.step b{flex:none;width:24px;height:24px;border-radius:50%;border:2px solid var(--s3);display:grid;place-items:center;font-size:11px;color:var(--s5)}
+.step.d b{background:var(--t5);border-color:var(--t5);color:#fff}
+.step.d span{color:var(--s5);text-decoration:line-through}
+.drop{display:block;border:2px dashed var(--s3);border-radius:14px;padding:26px 14px;text-align:center;color:var(--s5);background:#fff;cursor:pointer}
+.drop.hot{border-color:var(--t5);background:var(--tb)}
+.ck{display:flex;gap:10px;align-items:flex-start;font-weight:400;font-size:13px;color:var(--s7)}
+.ck input{margin-top:3px;width:18px;height:18px;flex:none}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;background:var(--s9);color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40}
+#toast.on{opacity:1}
+:focus-visible{outline:3px solid var(--t5);outline-offset:2px}
+.stage{height:96px;border-radius:12px;background:radial-gradient(ellipse at center,#334155 0%,#0f172a 100%);display:grid;place-items:center;align-content:center;color:#94a3b8;font-size:11px;text-align:center;margin-bottom:12px}
+.cube{width:30px;height:30px;border:2px solid var(--t4);background:rgba(45,212,191,.2);border-radius:6px;animation:sp 5s linear infinite;margin-bottom:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.cube{animation:none}}
+.po{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:1px solid var(--s2);background:#fff;padding:11px 13px;border-radius:10px;margin-top:8px;font-size:13px;font-weight:600}
+.po b{flex:none;min-width:22px;height:22px;border-radius:50%;border:2px solid var(--s3);display:grid;place-items:center;font-size:11px;color:var(--s5)}
+.po.on{border-color:var(--t5);background:var(--tb)}.po.on b{background:var(--t5);border-color:var(--t5);color:#fff}
+.po.good{border-color:#16a34a;background:#dcfce7;color:#166534}.po.bad{border-color:var(--bad);background:#fee2e2;color:var(--bad)}
+.bk{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:30}
+.sh{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:440px;background:#fff;border-radius:18px 18px 0 0;max-height:84vh;overflow-y:auto;z-index:31;padding:16px 16px 22px}
+.pb2{border:0;background:var(--t6);color:#fff;border-radius:10px;padding:9px 14px;font-weight:700;flex:none}
+.act{background:none;border:0;display:flex;gap:5px;align-items:center;color:var(--s5);font-weight:600;font-size:13px;padding:6px 0}
+.act[aria-pressed=true]{color:#e11d48}.act[aria-pressed=true] svg{fill:#e11d48}
+svg.i.s{width:16px;height:16px}
+.skip{background:linear-gradient(135deg,#042f2e,#0f766e);color:#fff;border-radius:12px;padding:11px 13px;margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.skip button{background:#fff;color:var(--t7);font-weight:800;font-size:12px;border:0;border-radius:8px;padding:8px 12px;flex:none}
+.rl{height:calc(100dvh - 215px);min-height:380px;overflow-y:auto;scroll-snap-type:y mandatory;border-radius:14px;background:#000}
+.rs{position:relative;height:100%;scroll-snap-align:start;overflow:hidden;color:#fff}
+.rs video,.rs img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.rsh{position:absolute;left:0;right:0;bottom:0;padding:60px 76px 16px 14px;background:linear-gradient(transparent,rgba(0,0,0,.72))}
+.rsa{position:absolute;right:8px;bottom:16px;display:flex;flex-direction:column;gap:14px;align-items:center}
+.rsa button{background:none;border:0;color:#fff;display:grid;justify-items:center;gap:2px;font-size:11px;font-weight:700;text-shadow:0 1px 3px rgba(0,0,0,.6);padding:0}
+.rsa svg.i{width:28px;height:28px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+.rsa button[aria-pressed=true] svg{fill:#fb7185;stroke:#fb7185}
+.dot{position:absolute;right:0;bottom:0;width:12px;height:12px;border-radius:50%;border:2px solid #fff;background:#22c55e}.dot.off{background:#94a3b8}
+.av2{position:relative;flex:none;width:44px;height:44px}
+.bub{max-width:78%;width:fit-content;padding:9px 12px;border-radius:14px;margin:6px 0;font-size:13.5px}
+.bub.me{margin-left:auto;background:var(--t6);color:#fff;border-bottom-right-radius:4px}.bub.fr{background:#fff;border:1px solid var(--s2);border-bottom-left-radius:4px}
+.inv{border:1px solid var(--t5);background:var(--tb);border-radius:12px;padding:10px;margin:6px 0;max-width:86%;width:fit-content}.inv.me{margin-left:auto}
+.badge{background:#e11d48;color:#fff;border-radius:999px;font-size:10px;font-weight:700;min-width:18px;height:18px;display:grid;place-items:center;padding:0 5px}
+</style></head><body>
+<div id="app"></div><div id="toast" role="status"></div>
+<script>
+const $=s=>document.querySelector(s),E=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const IC=p=>`<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
+const MARK=w=>`<svg viewBox="0 0 100 122" width="${w}" height="${Math.round(w*1.22)}" role="img" aria-label="Diadikasia logo"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a5fb0"/><stop offset="1" stop-color="#17aeb6"/></linearGradient></defs><path d="M50 3L94 14V60C94 90 72 106 50 117C28 106 6 90 6 60V14Z" fill="url(#lg)"/><path d="M52 14h10v9h9v10h-9v9H52v-9h-9V23h9z" fill="#fff"/><g fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M26 44V58C26 68 33 74 41 74"/><path d="M44 44V54C44 61 42 67 39 71"/><path d="M41 74C54 86 74 82 80 69"/><path d="M58 76C49 70 43 65 43 59C43 55 46 52 50 52C54 52 57 54 58 57C59 54 62 52 66 52C70 52 73 55 73 59C73 65 67 70 58 76Z"/><circle cx="83" cy="63" r="5"/></g></svg>`;
+const WM=z=>`<span class="wm" style="font-size:${z}px"><span style="color:#1d62ad">Diadik</span><span style="color:#17a2b0">asia</span></span>`;
+const SH='<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M12 8v6M9 11h6"/>';
+const NAV=[['home','Home','<path d="M4 11l8-7 8 7v9H5z"/>'],['explore','Explore','<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>'],['reels','Reels','<rect x="4" y="3" width="16" height="18" rx="3"/><path d="M10 9l5 3-5 3z"/>'],['friends','Friends','<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-5.5 7-5.5s7 2 7 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c3 0 5 1.5 5 4.5"/>'],['me','Profile','<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>']];
+const CATS={nursing:['Fundamentals','Medication','IV Therapy','Wound Care','Gastrointestinal','Renal & Urinary','Cardiovascular','Emergency & Trauma','Neurological','Musculoskeletal'],surgical:['Perioperative & Aseptic','General Surgery','Orthopedic','Obstetric & Gynecologic','Pediatric Surgery','Cardiothoracic','Neurosurgery','Urology']};
+const REG=['African','European','Asian'];
+const V=[
+['nursing','IV Therapy','Peripheral IV catheter insertion','Amina Garba, RN, Nurse Educator','Northern Skills Lab','African','07:20','Verify the order and identify the patient|Perform hand hygiene and gather equipment|Select the site and apply the tourniquet|Insert the catheter and confirm flashback|Secure the dressing and document'],
+['nursing','Wound Care','Aseptic wound dressing change','Sofia Lindqvist, RN, Wound Care Specialist','Nordic Wound Care Academy','European','08:30','Explain the procedure and perform hand hygiene|Set up the sterile field|Remove the old dressing and assess the wound|Clean the wound using aseptic technique|Apply the new dressing and document'],
+['nursing','Renal & Urinary','Female urinary catheterization','Priya Nair, RN, MSc','Lakeview College of Nursing','Asian','09:40','Explain the procedure and ensure privacy|Perform hand hygiene and open the sterile set|Clean the urethral area|Insert the catheter and confirm urine flow|Secure the catheter and document'],
+['nursing','Medication','Giving an intramuscular injection','Chidi Okafor, RN, BNSc','Lagos Nursing Simulation Hub','African','07:12','Check the order and the five rights|Perform hand hygiene and prepare the medication|Select and clean the injection site|Inject and withdraw the needle|Dispose of the sharps and document'],
+['nursing','Fundamentals','Measuring blood pressure manually','Lena Hartmann, RN, MSc','Rhine Clinical Training Centre','European','06:05','Position the patient and select the cuff size|Place the cuff on the bare upper arm|Inflate and listen with the stethoscope|Deflate slowly and note the readings|Record the result'],
+['nursing','Emergency & Trauma','Adult CPR (basic life support)','Kenji Mori, RN, BLS Instructor','Sakura Simulation Centre','Asian','06:50','Check the scene and responsiveness|Call for help and an AED|Start chest compressions|Give rescue breaths if trained|Use the AED when it arrives'],
+['surgical','Perioperative & Aseptic','Surgical hand scrub and gowning','Dr. Tobias Wagner, MD, Consultant Surgeon','Rhine Teaching Hospital','European','06:48','Remove jewelry and wet hands and forearms|Scrub nails, fingers and forearms in sequence|Rinse from fingertips to elbows|Dry with a sterile towel|Put on the sterile gown and gloves'],
+['surgical','General Surgery','Simple interrupted suturing','Dr. Fatima Bello, MBBS, FWACS','Savannah Surgical Training Unit','African','05:15','Select instruments and suture material|Grip the needle driver correctly|Pass the needle through both wound edges|Tie the knot and check tension|Cut the suture and inspect the closure'],
+['surgical','Perioperative & Aseptic','Draping the sterile field','Dr. Wei Chen, MD','Pearl River Surgical Institute','Asian','04:50','Open the sterile pack without touching the inside|Prepare the patient’s skin|Place the drapes around the surgical site|Secure the drapes|Maintain the sterile field'],
+['surgical','Orthopedic','Applying a forearm cast','Dr. Ioana Pop, MD','Carpathian Orthopedic Centre','European','08:05','Assess the limb and explain the procedure|Apply padding smoothly|Wrap the casting material evenly|Mold and check circulation|Give cast care instructions'],
+['surgical','Cardiothoracic','Chest drain: setup and assisting','Dr. Ngozi Eze, MD, FWACS','Lagos Surgical Training Hub','African','09:30','Confirm the indication and gather equipment|Position the patient and prepare the field|Assist with insertion under sterile conditions|Connect the drainage system|Secure the tube and monitor']
+].map((r,i)=>({id:i+1,d:r[0],c:r[1],t:r[2],by:r[3],o:r[4],r:r[5],m:r[6],st:r[7].split('|'),hue:[190,150,280,12,215,350,205,170,260,40,320][i],views:(i*937)%3900+300,lk:(i*53)%160+12,days:(i*5)%40+1}));
+const fresh=()=>({s:['Draft step 1','Draft step 2','Draft step 3','Draft step 4','Draft step 5'],url:'',name:'',gen:0,d:'nursing',c:'',r:'African',t:'',by:'',o:'',a:false,b:false,er:[]});
+const S={scr:'splash',au:'in',fg:false,tab:'home',d:'nursing',r:'All',c:'All',q:'',open:null,add:false,done:{},saved:new Set(),sub:[],rv:false,tabD:'watch',fr:[{n:'Chidi Okafor',on:1,role:'Learner'},{n:'Amina Garba',on:0,last:'2h ago',role:'Nurse educator'},{n:'Lena Hartmann',on:1,role:'Learner'}],
+ppl:[{n:'Priya Nair',role:'Clinical instructor'},{n:'Dr. Fatima Bello',role:'Clinical instructor'},{n:'Kenji Mori',role:'Clinical instructor'},{n:'Dr. Wei Chen',role:'Clinical instructor'},{n:'Zainab Musa',role:'Nurse educator'}],sent:[],fq:'',chat:null,iv:null,
+chats:{'Chidi Okafor':[{me:0,t:'text',x:'Did you finish the wound dressing practice?'},{me:1,t:'text',x:'Almost. Doing it tonight.'},{me:0,t:'text',x:'Nice. Let me know how the step order goes.'}]},unread:{'Chidi Okafor':1},
+nt:[{id:1,t:'invite',from:'Amina Garba',vid:2,when:'Today, 19:00',st:'pending'},{id:2,t:'req',from:'Kenji Mori',st:'pending'},{id:3,t:'remind',from:'Lena Hartmann',vid:5,when:'now',st:'seen'}],pr:null,lk:new Set(),share:true,sheet:null,views:{},pf:null,
+vc:{1:[{n:'Chidi O.',t:'Very clear, especially the flashback step.',ago:'2d'},{n:'Priya N.',t:'Great for our skills lab revision.',ago:'5d'}],7:[{n:'Lena H.',t:'The knot tying close-up helped a lot.',ago:'1w'}]},
+posts:[{id:1,k:'video',by:'Ward Rounds Lab',role:'Student group',org:'Nursing students',reg:'African',bio:'Comedy sketches that make hand hygiene stick.',verified:false,g:'Educational comedy',cap:'The handwash that lasted three seconds',hue:20,ago:'3h ago',views:2140,likes:312,cm:[{n:'Amina G.',t:'Too real. Sharing this with my class.',ago:'2h'}]},
+{id:2,k:'video',by:'Dr. Fatima Bello',role:'Clinical instructor',org:'Savannah Surgical Training Unit',reg:'African',bio:'Surgeon and teacher. Short tips for new learners.',verified:true,g:'Tip',cap:'Tip: keep your elbows tucked in when tying a knot. It steadies your hands.',hue:260,ago:'1d ago',views:1295,likes:204,cm:[]},
+{id:3,k:'photo',by:'Priya Nair',role:'Clinical instructor',org:'Lakeview College of Nursing',reg:'Asian',bio:'Nurse educator. Skills lab practice and revision tips.',verified:true,g:'Skills lab',cap:'Our skills lab is set up for today’s catheter practice.',hue:170,ago:'2d ago',views:880,likes:97,cm:[]},
+{id:4,k:'practice',by:'Chidi Okafor',role:'Learner',org:'',reg:'African',bio:'',vid:4,tries:1,rev:false,verified:false,g:'',ago:'5h ago',views:96,likes:18,cm:[]}],Q:[{id:101,d:'nursing',c:'Medication',t:'Oral medication administration: the rights',by:'Zainab Musa, RN, RNE',o:'Savannah School of Nursing',r:'African',m:'05:40',url:'',st:['Check the order and the five rights','Perform hand hygiene','Prepare the medication','Confirm patient identity and give it','Document the administration'],chk:[0,0,0,0,0],note:'',err:'',s:'pending'},{id:102,d:'surgical',c:'Pediatric Surgery',t:'Preparing the operating theatre for a pediatric case',by:'Dr. Elena Rossi, MD',o:'Adriatic Medical Simulation Centre',r:'European',m:'10:15',url:'',st:['Confirm the case and equipment list','Clean and prepare the theatre','Set up the instrument trolley','Check suction, lights and monitors','Complete the pre-case checklist'],chk:[0,0,0,0,0],note:'',err:'',s:'pending'}],user:{name:'',role:'Learner'},fd:fresh(),ok:false,msg:''};
+let tt,nid=200,keep=false;const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2400)};
+const grad=h=>`linear-gradient(135deg,hsl(${h} 55% 26%),hsl(${h+35} 60% 40%))`;
+const ini=n=>n.split(',')[0].split(' ').filter(w=>!/^(Dr\.)$/.test(w)).map(w=>w[0]).slice(0,2).join('')||'U';
+const list=()=>V.filter(v=>v.d==S.d&&(S.r=='All'||v.r==S.r)&&(S.c=='All'||v.c==S.c)&&(!S.q||(v.t+v.by+v.o).toLowerCase().includes(S.q.toLowerCase())));
+const card=v=>`<button class="card" data-a="open" data-v="${v.id}"><div class="th" style="background:${grad(v.hue)}"><svg viewBox="0 0 24 24" width="34" height="34"><path d="M8 5v14l11-7z" fill="#fff"/></svg><span class="tag">${v.c}</span><span class="dur">${v.m}</span></div><div class="cb"><div class="ct">${E(v.t)}</div><div class="m sm">${E(v.by.split(',')[0])}, ${E(v.o)}</div><div class="ft"><span class="pill">${v.r}</span><span class="ok">Reviewed</span><span class="pill" style="background:#e0f2fe;color:#0369a1">Practice</span><span class="m sm">${v.st.length} steps, ${fmt(vw(v))} views, ${dago(v.days)}</span></div></div></button>`;
+const cards=()=>{const L=list();return L.length?L.map(card).join(''):`<div class="pn"><b>No videos here yet</b><p class="m">Nothing is published for this region and category. Instructors can add the first one.</p><button class="btn" data-a="add">Contribute a video</button></div>`};
+function splash(){return `<div class="splash" data-a="toauth">${MARK(96)}<div style="margin:16px 0 6px">${WM(34)}</div><div class="m">Clinical procedures, taught by real instructors</div><p class="m sm" style="margin-top:40px">Tap to continue</p></div>`}
+function auth(){
+ const up=S.au=='up';
+ if(S.fg)return `<div class="auth"><div class="row" style="gap:10px">${MARK(34)}${WM(22)}</div><h2>Reset your password</h2><p class="m">Enter your email and we’ll send a reset link.</p><label>Email</label><input type="email" placeholder="you@example.com"><button class="btn" data-a="sendreset">Send reset link</button><button class="lnk" data-a="back">Back to sign in</button></div>`;
+ return `<div class="auth"><div class="row" style="gap:10px">${MARK(34)}${WM(22)}</div><h2>${up?'Create your account':'Welcome back'}</h2><p class="m" style="margin:0">Learn clinical procedures from instructors across Africa, Europe and Asia.</p>
+ <div class="tabs"><button class="${up?'':'on'}" data-a="au" data-v="in">Sign in</button><button class="${up?'on':''}" data-a="au" data-v="up">Create account</button></div>
+ ${up?'<label>Full name</label><input type="text" id="nm" autocomplete="name">':''}<label>Email</label><input type="email" id="em" autocomplete="email"><label>Password</label><input type="password" id="pw">
+ ${up?'<label>I am joining as</label><select id="rl"><option>Learner</option><option>Instructor or school (contributor)</option></select>':''}
+ <div class="err" id="ae"></div><button class="btn" data-a="login">${up?'Create account':'Sign in'}</button>${up?'':'<button class="lnk" data-a="fg">Forgot password?</button>'}</div>`;
+}
+function head(){const F=['home','explore'].includes(S.tab),pc=S.nt.filter(x=>x.st=='pending'&&x.t!='remind').length;
+ return `<header><div class="row bt"><div class="row" style="gap:10px"><div class="lm">${MARK(24)}</div><div><div class="brand">Diadikasia</div><div class="bs">CLINICAL PROCEDURES</div></div></div><div class="row" style="gap:6px"><button class="hb" data-a="add">+ Contribute</button><button class="hb" style="border:0;background:none;color:var(--s3);position:relative" aria-label="Notifications" data-a="note">${IC('<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>')}${pc?`<span class="badge" style="position:absolute;top:0;right:0">${pc}</span>`:''}</button></div></div>
+ ${F?`<div class="sw" role="group" aria-label="Procedure type">${['nursing','surgical'].map(k=>`<button class="${S.d==k?'on':''}" data-a="disc" data-v="${k}" aria-pressed="${S.d==k}">${k=='nursing'?'Nursing procedures':'Surgical procedures'}</button>`).join('')}</div>
+ <div class="rg" role="group" aria-label="Region"><span>Region</span>${['All',...REG].map(x=>`<button class="${S.r==x?'on':''}" data-a="reg" data-v="${x}" aria-pressed="${S.r==x}">${x}</button>`).join('')}</div>`:''}</header>`}
+function home(){return `<div class="chips" aria-label="Categories">${['All',...CATS[S.d]].map(x=>`<button class="chip ${S.c==x?'on':''}" data-a="cat" data-v="${x}">${x=='All'?'All categories':x}</button>`).join('')}</div><div class="row bt"><p class="h">${S.d=='nursing'?'Nursing':'Surgical'} procedures</p><p class="h">${list().length} videos</p></div>${cards()}<p class="m sm">Sample content for demonstration only.</p>`}
+function explore(){return `<label style="margin-top:0">Search procedures, instructors or schools</label><input type="text" id="q" value="${E(S.q)}" placeholder="e.g. catheter, suturing"><p class="m sm" style="margin:6px 0 12px">Searching ${S.d} videos, ${S.r=='All'?'all regions':S.r+' instructors'}. Change these at the top.</p><div id="res">${cards()}</div>`}
+const fmt=n=>n>=1000?(n/1000).toFixed(1).replace('.0','')+'K':String(n);
+const dago=d=>d<1?'Today':d==1?'1 day ago':d<30?d+' days ago':'1 month ago';
+const vw=v=>v.views+(S.views[v.id]||0),vl=v=>v.lk+(S.lk.has('v'+v.id)?1:0),vcm=v=>(S.vc[v.id]||[]).length;
+const ico=p=>`<svg class="i s" viewBox="0 0 24 24" aria-hidden="true">${p}</svg>`;
+const I={heart:'<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>',chat:'<path d="M4 5h16v11H9l-5 4z"/>',eye:'<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'};
+const freshPf=()=>({k:'video',cap:'',g:'Tip',a:false,url:'',name:'',isImg:false,er:''});
+I.share='<path d="M4 12v7h16v-7"/><path d="M12 3v12M8 7l4-4 4 4"/>';I.flag='<path d="M5 21V4h11l-2 4 2 4H5"/>';
+function reels(){return `<div class="row bt" style="margin-bottom:8px"><div><p class="h" style="margin:0">Reels</p><div class="m sm">Open to everyone. Posts are not reviewed first.</div></div><button class="pb2" data-a="newpost">+ Post</button></div><div class="rl">${S.posts.map(post).join('')}</div>`}
+function post(p){const lk=S.lk.has('p'+p.id),pr=p.k=='practice',v=pr?V.find(x=>x.id==p.vid):null;
+ const bg=p.url?(p.img?`<img src="${p.url}" alt="">`:`<video src="${p.url}" controls playsinline></video>`):'';
+ const mid=pr?`<div style="position:absolute;inset:0;display:grid;place-items:center;padding:24px 70px 24px 24px"><div style="background:rgba(255,255,255,.96);color:var(--s9);border-radius:16px;padding:16px;text-align:center"><b>${E(p.by.split(' ')[0])} practiced ${E(v.t)}</b><div class="sm" style="margin-top:6px;color:var(--t7)">${p.rev?'Still learning the order of the steps: practicing.':p.tries<=1?'Put the steps in order on the first try.':`Practicing: needed ${p.tries} tries to get the steps in order.`}</div><button class="lnk" data-a="tryit" data-v="${v.id}">Try this procedure →</button></div></div>`:(p.url?'':`<div style="position:absolute;inset:0;display:grid;place-items:center;font-size:34px;opacity:.85">${p.k=='photo'?'Photo':'▶'}</div>`);
+ return `<section class="rs" style="background:${grad(p.hue||215)}">${bg}${mid}<div class="rsh"><b>${E(p.by)}</b>${p.verified?' <span class="ok" style="padding:0 6px">Verified</span>':''}<div class="sm" style="opacity:.85">${E(p.role)}, ${p.ago}</div>${pr?'':`<p style="margin:6px 0 4px">${E(p.cap)}</p>${p.g?`<span class="pill">${E(p.g)}</span>`:''}<div class="sm" style="opacity:.75;margin-top:4px">Community post, not reviewed. Not clinical guidance.</div>`}</div>
+ <div class="rsa"><button data-a="pro" data-v="${E(p.by)}" aria-label="Profile"><div class="logo" style="border-radius:50%;width:42px;height:42px;font-size:14px;font-weight:700;border:2px solid #fff">${E(ini(p.by))}</div></button>
+ <button data-a="plike" data-v="${p.id}" aria-pressed="${lk}" aria-label="Like">${ico(I.heart)}${fmt(p.likes+(lk?1:0))}</button>
+ <button data-a="pcom" data-v="${p.id}" aria-label="Comments">${ico(I.chat)}${p.cm.length}</button>
+ <button data-a="psh" data-v="${p.id}" aria-label="Share with a friend">${ico(I.share)}Share</button>
+ <span style="display:grid;justify-items:center;font-size:11px;font-weight:700">${ico(I.eye)}${fmt(p.views)}</span>
+ <button data-a="prep" data-v="${p.id}" aria-label="Report">${ico(I.flag)}Report</button></div></section>`}
+const fav=f=>`<div class="av2"><div class="logo" style="border-radius:50%;width:44px;height:44px;font-weight:700">${E(ini(f.n))}</div><span class="dot ${f.on?'':'off'}"></span></div>`;
+function fres(){const q=S.fq.trim().toLowerCase(),R=q?S.ppl.filter(x=>x.n.toLowerCase().includes(q)&&!S.fr.find(f=>f.n==x.n)):[];
+ return q?(R.length?R.map(x=>`<div class="pn row bt" style="margin:8px 0 0;padding:10px 12px"><div><b>${E(x.n)}</b><div class="m sm">${E(x.role)}</div></div>${S.sent.includes(x.n)?'<span class="m sm">Requested</span>':`<button class="pb2" data-a="fadd" data-v="${E(x.n)}">Add friend</button>`}</div>`).join(''):'<p class="m sm">No one found. Invite them with a link below.</p>'):''}
+function friends(){return `<p class="h">Add a friend</p><input type="text" id="fq" value="${E(S.fq)}" placeholder="Search by name"><div id="fres">${fres()}</div><button class="btn s" style="margin-top:10px" data-a="invlink">Invite someone who isn’t on Diadikasia</button>
+ <p class="h" style="margin:18px 0 8px">Friends (${S.fr.length})</p>${S.fr.map(f=>{const L=S.chats[f.n]||[],last=L[L.length-1],u=S.unread[f.n]||0;return `<button class="card" data-a="chat" data-v="${E(f.n)}" style="display:flex;gap:12px;align-items:center;padding:12px 14px">${fav(f)}<div style="flex:1;min-width:0"><b>${E(f.n)}</b><div class="sm" style="color:${f.on?'#16a34a':'var(--s5)'}">${f.on?'Online':'Last seen '+f.last}</div><div class="m sm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${last?(last.t=='invite'?'Study invite':last.t=='post'?'Shared a reel':last.t=='remind'?'Reminder':E(last.x)):'No messages yet'}</div></div>${u?`<span class="badge">${u}</span>`:''}</button>`}).join('')}`}
+function msg(m,i,f){const c=m.me?'me':'fr';
+ if(m.t=='text')return `<div class="bub ${c}">${E(m.x)}</div>`;
+ if(m.t=='remind'){const v=V.find(x=>x.id==m.vid);return `<div class="sm m" style="text-align:center;margin:8px 0">Reminder sent for “${E(v.t)}”.${f.on?'':' They will get it as a notification.'}</div>`}
+ if(m.t=='post'){const p=S.posts.find(x=>x.id==m.pid);return `<div class="inv ${c}"><div class="sm m">Shared a reel</div><b>${E(p.cap||(p.k=='practice'?'Practice result':'Reel'))}</b><div class="sm m">by ${E(p.by)}</div></div>`}
+ const v=V.find(x=>x.id==m.vid);
+ return `<div class="inv ${c}"><div class="sm m">Study session</div><b>${E(v.t)}</b><div class="sm">${m.when}</div>${m.note?`<div class="sm m">${E(m.note)}</div>`:''}<div class="sm" style="margin-top:4px;font-weight:700;color:${m.st=='accepted'?'#15803d':'var(--s5)'}">${m.st=='accepted'?'Accepted':'Waiting for '+E(f.n.split(' ')[0])}</div>${m.me&&m.st=='pending'?`<button class="lnk" data-a="remind" data-v="${i}">Send a reminder</button>${f.on?'':'<div class="sm m">They are offline. They will see this as a notification if notifications are on.</div>'}`:''}</div>`}
+function chatv(){const f=S.fr.find(x=>x.n==S.chat),L=S.chats[S.chat]||[];
+ return `<div class="ov"><div class="ovh"><button data-a="cx">Back</button><div style="text-align:center"><b>${E(f.n)}</b><div class="sm" style="color:${f.on?'#16a34a':'var(--s5)'}">${f.on?'Online':'Last seen '+f.last}</div></div><button data-a="invsheet">Study invite</button></div>
+ <div style="padding:12px 14px 90px">${L.length?L.map((m,i)=>msg(m,i,f)).join(''):'<p class="m" style="text-align:center">Say hello, or invite them to study together.</p>'}</div>
+ <div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:440px;background:#fff;border-top:1px solid var(--s2);padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));display:flex;gap:8px"><input type="text" id="mi" placeholder="Message" style="flex:1"><button class="pb2" data-a="msend">Send</button></div></div>`}
+const freshIv=()=>{const d=new Date(Date.now()+864e5),p=n=>String(n).padStart(2,'0');return{vid:V[0].id,when:`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T19:00`,note:'',er:''}};
+function sheet(){const s=S.sheet;let b='';
+ if(s.k=='c'){const L=s.t=='p'?S.posts.find(x=>x.id==s.id).cm:(S.vc[s.id]=S.vc[s.id]||[]);
+  b=`<b style="font-size:16px">Comments (${L.length})</b>${L.length?L.map(c=>`<div style="padding:10px 0;border-top:1px solid var(--s1)"><div class="sm"><b>${E(c.n)}</b> <span class="m">${c.ago}</span></div><div>${E(c.t)}</div></div>`).join(''):'<p class="m">No comments yet. Be the first.</p>'}<div class="row" style="gap:8px;margin-top:10px"><input type="text" id="ci" placeholder="Add a comment" style="flex:1"><button class="pb2" data-a="csend">Send</button></div><p class="m sm" style="margin:8px 0 0">Keep it respectful. Never share patient details.</p>`}
+ else if(s.k=='pro'){const mine=S.posts.filter(x=>x.by==s.by),P=mine[0]||{role:S.user.role};
+  b=`<div class="row" style="gap:12px"><div class="logo" style="border-radius:50%;width:56px;height:56px;font-size:18px;font-weight:700">${E(ini(s.by))}</div><div><b style="font-size:16px">${E(s.by)}</b>${P.verified?' <span class="ok">Verified</span>':''}<div class="m sm">${E(P.role)}</div></div></div>${P.bio?`<p>${E(P.bio)}</p>`:''}
+  <div class="pn" style="margin-top:10px">${[['School or hospital',P.org||'Not added'],['Region',P.reg||'Not added'],['Posts',mine.length],['Likes received',mine.reduce((a,x)=>a+x.likes,0)]].map(r=>`<div class="row bt sm" style="padding:4px 0"><span class="m">${r[0]}</span><b>${E(r[1])}</b></div>`).join('')}</div><p class="m sm">Verified means Diadikasia has checked this person’s credentials.</p>`}
+ else if(s.k=='n'){const f=S.pf;
+  b=`<b style="font-size:16px">New post</b><p class="m sm" style="margin:2px 0 8px">Posts go live straight away and are not reviewed first.</p>${f.er?`<div class="err">${f.er}</div>`:''}
+  <div class="sw" style="grid-template-columns:repeat(3,1fr)">${[['video','Video'],['photo','Photo'],['rec','Record']].map(([k,l])=>`<button class="${f.k==k?'on':''}" data-a="pk" data-v="${k}">${l}</button>`).join('')}</div>
+  ${f.url?(f.isImg?`<img src="${f.url}" alt="" style="width:100%;max-height:200px;object-fit:cover;border-radius:10px;margin-top:10px">`:`<video src="${f.url}" controls playsinline style="width:100%;max-height:220px;border-radius:10px;margin-top:10px"></video>`):''}
+  <label class="drop" style="margin-top:10px;padding:16px">${f.name?'Choose a different file':f.k=='rec'?'Tap to record yourself':f.k=='photo'?'Tap to choose a photo':'Tap to choose a video'}<input type="file" data-a="pfile" accept="${f.k=='photo'?'image/*':'video/*'}" ${f.k=='rec'?'capture':''} hidden></label>
+  <label>Caption</label><input type="text" data-p="cap" value="${E(f.cap)}" placeholder="Say something helpful or fun"><label>Type</label><select data-p="g">${['Tip','Educational comedy','Short drama','Question','Skills lab'].map(x=>`<option ${f.g==x?'selected':''}>${x}</option>`).join('')}</select>
+  <label class="ck" style="margin-top:12px"><input type="checkbox" data-p="a" ${f.a?'checked':''}>No patient can be identified, and I have the right to share this.</label><button class="btn" data-a="psend">Post</button>`}
+ else if(s.k=='nt'){b=`<b style="font-size:16px">Notifications</b>${S.nt.length?S.nt.map(n=>{const v=n.vid?V.find(x=>x.id==n.vid):null;const tx=n.t=='req'?`<b>${E(n.from)}</b> wants to be your friend.`:n.t=='invite'?`<b>${E(n.from)}</b> invited you to study <b>${E(v.t)}</b>, ${n.when}.`:`<b>${E(n.from)}</b> is reminding you to study <b>${E(v.t)}</b>.`;
+   return `<div style="padding:12px 0;border-top:1px solid var(--s1)"><div>${tx}</div>${n.st=='pending'?`<div class="row" style="gap:8px;margin-top:8px"><button class="pb2" data-a="nta" data-v="${n.id}">Accept</button><button class="pb2" style="background:#fff;color:var(--s9);border:1px solid var(--s3)" data-a="ntd" data-v="${n.id}">Decline</button></div>`:`<div class="m sm" style="margin-top:4px">${({accepted:'Accepted',declined:'Declined',done:'Added as a friend'})[n.st]||''}</div>`}</div>`}).join(''):'<p class="m">Nothing new.</p>'}<p class="m sm">Friends’ invites and reminders reach you here, and as phone notifications if notifications are on.</p>`}
+ else if(s.k=='iv'){const f=S.iv,fr=S.fr.find(x=>x.n==S.chat);b=`<b style="font-size:16px">Study invite for ${E(S.chat)}</b><p class="m sm" style="margin:2px 0 6px">Choose a procedure and a time. ${fr.on?'They are online and will see it straight away.':'They are offline. They get a notification if their notifications are on.'}</p>${f.er?`<div class="err">${f.er}</div>`:''}<label>Procedure</label><select data-iv="vid">${['nursing','surgical'].map(d=>`<optgroup label="${d=='nursing'?'Nursing':'Surgical'}">${V.filter(v=>v.d==d).map(v=>`<option value="${v.id}" ${f.vid==v.id?'selected':''}>${E(v.t)}</option>`).join('')}</optgroup>`).join('')}</select><label>Date and time</label><input type="datetime-local" data-iv="when" value="${f.when}"><label>Note (optional)</label><input type="text" data-iv="note" value="${E(f.note)}" placeholder="e.g. Let’s go through the steps together"><button class="btn" data-a="ivsend">Send invite</button>`}
+ else if(s.k=='sh'){b=`<b style="font-size:16px">Send to a friend</b><p class="m sm" style="margin:2px 0 6px">Reels can only be shared with your Diadikasia friends, not outside the app.</p>${S.fr.length?S.fr.map(f=>`<button class="po" data-a="shto" data-v="${E(f.n)}"><b style="border:0;min-width:0">${f.on?'●':'○'}</b><span>${E(f.n)}</span></button>`).join(''):'<p class="m">Add a friend first.</p>'}`}
+ else b=`<b style="font-size:16px">Report this post</b><p class="m sm">What is wrong with it?</p>${['A patient can be identified','Unsafe or wrong clinical advice','Disrespectful or abusive','Something else'].map(r=>`<button class="po" data-a="rsend">${r}</button>`).join('')}`;
+ return `<div class="bk" data-a="xs"></div><div class="sh" role="dialog">${b}<button class="lnk" data-a="xs" style="display:block;margin:10px auto 0">Close</button></div>`}
+function postPr(p){if(!S.share||p.posted)return;p.posted=1;S.posts.unshift({id:nid++,k:'practice',by:S.user.name,role:S.user.role,org:'',reg:'',bio:'',vid:p.vid,tries:p.tries,rev:p.rev,verified:false,g:'',ago:'Just now',views:0,likes:0,cm:[]})}
+function saved(){const L=V.filter(v=>S.saved.has(v.id));return `<p class="h">Saved videos</p>${L.length?L.map(card).join(''):'<div class="pn"><b>Nothing saved yet</b><p class="m">Tap the bookmark on any video to keep it here.</p></div>'}`}
+function me(){const u=S.user;return `<div class="pn row" style="gap:12px"><div class="logo" style="width:52px;height:52px;border-radius:50%">${E(ini(u.name))}</div><div><b>${E(u.name)}</b><div class="m sm">${E(u.role)}</div></div></div>
+ <p class="h">My submissions</p>${S.sub.length?S.sub.map(i=>{const s=S.Q.find(x=>x.id==i),L={pending:'Pending review',ok:'Published',chg:'Changes requested',rej:'Not published'}[s.s];return `<div class="pn"><div class="ct">${E(s.t)}</div><div class="m sm">${s.d=='nursing'?'Nursing':'Surgical'}, ${E(s.c)}, ${s.r}</div><div class="ft"><span class="ok ${s.s=='ok'?'':'wt'}">${L}</span></div>${s.note&&s.s!='pending'?`<p class="m sm" style="margin:6px 0 0">Reviewer note: ${E(s.note)}</p>`:''}</div>`}).join(''):'<div class="pn"><p class="m" style="margin:0">Videos you contribute appear here with their review status.</p><button class="btn s" data-a="add">Contribute a video</button></div>'}
+ <div style="margin-top:18px">${saved()}</div><p class="h" style="margin-top:18px">Settings</p><label class="ck pn" style="margin:0 0 12px"><input type="checkbox" data-share="1" ${S.share?'checked':''}>Share my practice results in Reels. On by default; turn it off any time.</label><p class="h" style="margin-top:18px">Reviewer tools</p><button class="btn s" style="margin-top:0" data-a="rev">Open review queue (${S.Q.filter(x=>x.s=='pending').length} waiting)</button><p class="m sm">In the real app this is visible to approved reviewers only.</p><button class="btn s" data-a="out">Sign out</button>`}
+function detail(){const v=V.find(x=>x.id==S.open),dn=S.done[v.id]||[],n=dn.filter(Boolean).length,pct=Math.round(n/v.st.length*100),pr=S.tabD=='practice';
+ const hd=`<div class="ov"><div class="ovh"><button data-a="closed">Back</button><b>${pr?'Practice':'Procedure'}</b><button data-a="save" data-v="${v.id}" aria-pressed="${S.saved.has(v.id)}">${S.saved.has(v.id)?'Saved':'Save'}</button></div><div style="padding:10px 16px 0"><div class="tabs" style="margin:0"><button class="${pr?'':'on'}" data-a="dtab" data-v="watch">Watch</button><button class="${pr?'on':''}" data-a="dtab" data-v="practice">Practice</button></div></div>`;
+ if(pr)return hd+`<div style="padding:14px 16px 40px">${practice(v)}</div></div>`;
+ return hd+`<div class="vid" style="margin-top:12px;background:${grad(v.hue)}"><button class="pb" aria-label="Play">▶</button><span class="dur">${v.m}</span></div>
+ <div style="padding:0 16px 40px"><div class="skip"><div><b style="font-size:13px">Already know this procedure?</b><div style="font-size:11px;opacity:.9">Go straight to practice. You can come back to the video any time.</div></div><button data-a="dtab" data-v="practice">Go to Practice</button></div>
+ <div class="ct" style="font-size:18px;margin-top:14px">${E(v.t)}</div><div class="ft" style="border:0;margin-top:6px;padding:0"><span class="ok">Reviewed</span><span class="pill">${v.r} instructors</span><span class="pill">${v.c}</span></div>
+ <div class="row" style="gap:14px;margin-top:10px;flex-wrap:wrap"><span class="m sm row" style="gap:4px">${ico(I.eye)} ${fmt(vw(v))} views</span><button class="act" data-a="vlike" data-v="${v.id}" aria-pressed="${S.lk.has('v'+v.id)}" aria-label="Like">${ico(I.heart)} ${fmt(vl(v))}</button><button class="act" data-a="vcom" data-v="${v.id}">${ico(I.chat)} ${vcm(v)} comments</button><span class="m sm">Uploaded ${dago(v.days)}</span></div>
+ <div class="pn row" style="gap:12px;margin-top:14px"><div class="logo" style="border-radius:50%;width:44px;height:44px">${E(ini(v.by))}</div><div><b>${E(v.by)}</b><div class="m sm">${E(v.o)}</div></div></div>
+ <div class="pn"><div class="row bt"><b>Step-by-step guide</b><span class="m sm">${n} of ${v.st.length} done</span></div><div class="bar"><i style="width:${pct}%"></i></div><p class="m sm" style="margin:4px 0 0">Steps are generated from the video, then confirmed by the instructor and a reviewer before publishing.</p>
+ ${v.st.map((s,i)=>`<button class="step ${dn[i]?'d':''}" data-a="step" data-v="${v.id}:${i}"><b>${dn[i]?'✓':i+1}</b><span>${E(s)}</span></button>`).join('')}</div>
+ <button class="btn" data-a="dtab" data-v="practice">Practice this procedure</button><p class="m sm" style="text-align:center">Educational use only. Follow your institution’s policy and supervision.</p></div></div>`}
+/* PRACTICE: generated from each video's step guide, so every video has it */
+const shuf=(a,s)=>{a=[...a];s=s*9301+49297;for(let i=a.length-1;i>0;i--){s=(s*9301+49297)%233280;const j=Math.floor(s/233280*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+function newPr(id){const v=V.find(x=>x.id==id),n=v.st.length,idx=[...Array(n).keys()];
+ if(n<3)return{vid:id,few:1};
+ let sh=shuf(idx,id);if(sh.every((x,i)=>x==i))sh.reverse();
+ const nq=[...new Set([1,n-2])].filter(p=>p>=0&&p<n-1).map((p,k)=>({p,r:p+1,o:shuf([p+1,...shuf(idx.filter(i=>i!=p+1&&i!=p),id+k+1).slice(0,2)],id+k+7)}));
+ const m=Math.floor(n/2);
+ return{vid:id,sh,nq,m,mo:shuf([m,...shuf(idx.filter(i=>i!=m),id+3).slice(0,2)],id+5),part:1,sel:[],tries:0,oOk:false,rev:false,qi:0,qp:null,mp:null,bad:[],first:{o:null,q:[],m:null},ref:'',msg:'',g:0}}
+const stage=t=>`<div class="stage"><div class="cube"></div>3D practice scene (coming soon)<br>${E(t)}</div>`;
+function practice(v){if(!S.pr||S.pr.vid!=v.id)S.pr=newPr(v.id);const p=S.pr,st=v.st;
+ if(p.few)return '<div class="pn"><b>Practice needs at least three steps</b><p class="m" style="margin:6px 0 0">This video’s step guide is too short to build practice from.</p></div>';
+ if(p.part==4)return debrief(v,p);
+ const hd=`<div class="row bt" style="margin-bottom:10px"><div><span class="tag" style="position:static;display:inline-block">Practice</span><div class="ct" style="margin-top:4px">${E(v.t)}</div></div><div style="text-align:right"><span class="sm m">Part ${p.part} of 3</span><div class="bar" style="width:70px"><i style="width:${p.part*33}%"></i></div></div></div>`+stage(v.t);
+ let b='';
+ if(p.part==1){const done=p.oOk||p.rev;
+  b=`<div class="h">Put the steps in order</div><p style="font-weight:600;margin:0">Tap the steps in the order you would do them.</p><p class="m sm" style="margin:4px 0 0">${S.share?'Your result is shared in Reels. You can change this in Profile.':'Sharing is off. Your result stays private.'}</p>`+p.sh.map(i=>{const k=p.sel.indexOf(i);return `<button class="po ${k>=0?'on':''}" data-a="pr-o" data-v="${i}"><b>${k>=0?k+1:''}</b><span>${E(st[i])}</span></button>`}).join('')
+  +(p.msg?`<p class="sm" style="margin:10px 0 0;font-weight:700;color:${p.g?'#15803d':'var(--bad)'}">${p.msg}</p>`:'')
+  +(done?`<button class="btn" data-a="pr-n">Continue</button>`:`<button class="btn" data-a="pr-chk">Check order</button><div class="row bt"><button class="lnk" data-a="pr-reset">Reset</button>${p.tries?'<button class="lnk" data-a="pr-rev">Show me the order</button>':''}</div>`)}
+ else if(p.part==2){const q=p.nq[p.qi],ok=p.qp!==null&&q.o[p.qp]==q.r;
+  b=`<div class="h">What comes next? (${p.qi+1} of ${p.nq.length})</div><p style="font-weight:600;margin:0">After “${E(st[q.p])}”, what is the next step?</p>`+q.o.map((i,j)=>`<button class="po ${p.qp!==null?(i==q.r?'good':p.qp==j?'bad':''):''}" data-a="pr-q" data-v="${j}"><b>${'ABC'[j]}</b><span>${E(st[i])}</span></button>`).join('')
+  +(p.qp!==null?`<p class="sm" style="margin:10px 0 0;font-weight:700;color:${ok?'#15803d':'var(--bad)'}">${ok?'✓ Correct.':'✗ Not quite.'} In the guide, step ${q.r+1} is “${E(st[q.r])}”.</p><button class="btn" data-a="pr-n">Continue</button>`:'')}
+ else{const ok=p.mp!==null&&p.mo[p.mp]==p.m;
+  b=`<div class="h">Find the missing step</div><p style="font-weight:600;margin:0">One step has been removed. Which one is it?</p><div class="pn" style="margin:8px 0">`+st.map((s,i)=>i==p.m?`<div class="sm" style="padding:6px 0;color:var(--t6);font-weight:700"><span style="display:inline-block;width:20px">${i+1}.</span>? (missing step)</div>`:`<div class="sm" style="padding:6px 0"><span class="m" style="display:inline-block;width:20px">${i+1}.</span>${E(s)}</div>`).join('')+'</div>'
+  +p.mo.map((i,j)=>`<button class="po ${p.mp!==null?(i==p.m?'good':p.mp==j?'bad':''):''}" data-a="pr-m" data-v="${j}"><b>${'ABC'[j]}</b><span>${E(st[i])}</span></button>`).join('')
+  +(p.mp!==null?`<p class="sm" style="margin:10px 0 0;font-weight:700;color:${ok?'#15803d':'var(--bad)'}">${ok?'✓ Correct.':'✗ Not quite.'} The missing step was “${E(st[p.m])}”.</p><button class="btn" data-a="pr-n">See results</button>`:'')}
+ return hd+`<div class="pn">${b}</div><button class="lnk" data-a="dtab" data-v="watch" style="display:block;margin:0 auto">Back to the video</button>`}
+function debrief(v,p){const tot=2+p.nq.length,ok=(p.first.o?1:0)+p.first.q.filter(Boolean).length+(p.first.m?1:0),bad=[...new Set(p.bad)].sort((a,b)=>a-b);
+ return `<div class="pn" style="text-align:center"><div style="font-size:30px;font-weight:800;color:var(--t6)">${ok} of ${tot}</div><b>correct on the first try</b><p class="m sm" style="margin:6px 0 0">This checks what you know about the steps. It does not show hands-on skill.</p></div>
+ <div class="pn"><b>Steps to review</b>${bad.length?bad.map(i=>`<div class="sm" style="padding:4px 0">${i+1}. ${E(v.st[i])}</div>`).join('')+'<button class="btn s" style="margin-top:10px" data-a="dtab" data-v="watch">Rewatch the video</button>':'<p class="m sm" style="margin:6px 0 0">You got every step right the first time.</p>'}</div>
+ <div class="pn"><b>Reflect</b><label style="margin-top:8px">What will you do differently when you practice this?</label><input type="text" data-r="1" value="${E(p.ref)}"></div>
+ <div class="pn"><b>Perform</b><p class="m sm" style="margin:6px 0 0">Next, practice on a manikin or in your skills lab, and ask your instructor to sign you off.</p></div>
+ <button class="btn" data-a="pr-again">Practice again</button>`}
+function prAct(a,v){const p=S.pr;if(!p)return;
+ if(a=='pr-o'){if(p.oOk||p.rev)return;const k=p.sel.indexOf(v);k>=0?p.sel.splice(k,1):p.sel.push(v);p.msg=''}
+ else if(a=='pr-reset'){p.sel=[];p.msg=''}
+ else if(a=='pr-chk'){if(p.sel.length<p.sh.length){p.msg='Tap every step first.';p.g=0;return}
+  const ok=p.sel.every((x,i)=>x==i);p.tries++;if(p.first.o===null)p.first.o=ok;
+  if(ok){p.oOk=true;p.msg='✓ Correct order.';p.g=1;postPr(p)}else{p.sel.forEach((x,i)=>{if(x!=i)p.bad.push(i)});p.msg=`✗ Not quite. ${p.sel.filter((x,i)=>x!=i).length} step(s) are in the wrong place.`;p.g=0}}
+ else if(a=='pr-rev'){p.rev=true;if(p.first.o===null)p.first.o=false;p.sel=p.sh.map((_,i)=>i);p.sh.forEach((_,i)=>p.bad.push(i));p.msg='Here is the correct order. Review it, then continue.';p.g=1;postPr(p)}
+ else if(a=='pr-q'){if(p.qp!==null)return;p.qp=v;const q=p.nq[p.qi],ok=q.o[v]==q.r;p.first.q[p.qi]=ok;if(!ok)p.bad.push(q.r)}
+ else if(a=='pr-m'){if(p.mp!==null)return;p.mp=v;const ok=p.mo[v]==p.m;p.first.m=ok;if(!ok)p.bad.push(p.m)}
+ else if(a=='pr-n'){if(p.part==1){p.part=2;p.qi=0;p.qp=null;p.msg=''}else if(p.part==2){if(p.qi<p.nq.length-1){p.qi++;p.qp=null}else p.part=3}else p.part=4}
+ else if(a=='pr-again')S.pr=newPr(S.open)}
+function add(){const f=S.fd;
+ if(S.ok)return `<div class="ov"><div class="ovh"><span></span><b>Submitted</b><button data-a="closea">Close</button></div><div style="padding:20px"><div class="pn"><b style="font-size:17px">Thank you. Your video is in review.</b><p class="m">A clinical reviewer checks every video before anyone can watch it. You can follow the status under Profile.</p><button class="btn" data-a="mysub">See my submissions</button></div></div></div>`;
+ return `<div class="ov"><div class="ovh"><button data-a="closea">Cancel</button><b>Contribute a video</b><span style="width:50px"></span></div><div style="padding:14px 16px 40px">
+ ${f.er.length?`<div class="pn" role="alert" style="border-color:var(--bad)"><b>Before you submit</b>${f.er.map(x=>`<div class="err">${x}</div>`).join('')}</div>`:''}
+ ${f.url?`<video src="${f.url}" controls playsinline style="width:100%;border-radius:12px"></video><div class="m sm">${E(f.name)}</div>`:''}
+ <label class="drop" id="dz">${f.name?'Choose a different video':'Drag a video here, or tap to choose one'}<br><span class="sm">MP4 or MOV. Filming on a phone is fine.</span><input type="file" id="fl" accept="video/*" hidden></label>
+ ${f.gen==1?'<div class="pn" style="margin-top:12px"><b>Analysing video…</b><p class="m sm" style="margin:0">Drafting the step-by-step guide and practice activities.</p></div>':''}
+ ${f.gen==2?`<div class="pn" style="margin-top:12px"><b>Draft guide ready</b><p class="m sm">In the real app these steps come from your video. You will review and edit them before submitting.</p>${['00:12','01:05','02:40','04:10','05:30'].map((t,i)=>`<div class="row" style="gap:8px;margin-top:6px"><span class="m sm" style="width:40px">${t}</span><input type="text" data-s="${i}" value="${E(f.s[i])}"></div>`).join('')}</div>`:''}
+ <label>Procedure type</label><div class="sw">${['nursing','surgical'].map(k=>`<button class="${f.d==k?'on':''}" data-a="fd" data-v="${k}">${k=='nursing'?'Nursing':'Surgical'}</button>`).join('')}</div>
+ <label>Category</label><select data-f="c"><option value="">Choose a category</option>${CATS[f.d].map(x=>`<option ${f.c==x?'selected':''}>${x}</option>`).join('')}</select>
+ <label>Region of your teaching context</label><select data-f="r">${REG.map(x=>`<option ${f.r==x?'selected':''}>${x}</option>`).join('')}</select>
+ <label>Procedure title</label><input type="text" data-f="t" value="${E(f.t)}" placeholder="e.g. Manual blood pressure measurement">
+ <label>Your name and credentials</label><input type="text" data-f="by" value="${E(f.by)}" placeholder="e.g. Amina Garba, RN, Nurse Educator">
+ <label>School, hospital or organization</label><input type="text" data-f="o" value="${E(f.o)}">
+ <label class="ck" style="margin-top:16px"><input type="checkbox" data-f="a" ${f.a?'checked':''}>I own the rights to this video or have permission to share it.</label>
+ <label class="ck"><input type="checkbox" data-f="b" ${f.b?'checked':''}>No patient can be identified in this video, or I hold written patient consent.</label>
+ <button class="btn" data-a="submit">Submit for review</button></div></div>`}
+const CHK=['Clinically accurate and consistent with current guidance','Steps match what the video shows','Audio and picture are clear','No identifiable patient, or consent confirmed','Practice questions built from the steps are accurate and safe'];
+function rev(){const P=S.Q.filter(x=>x.s=='pending'),D=S.Q.filter(x=>x.s!='pending'),L={ok:'Published',chg:'Changes requested',rej:'Not published'};
+ return `<div class="ov"><div class="ovh"><button data-a="closer">Close</button><b>Review queue</b><span style="width:50px"></span></div><div style="padding:14px 16px 40px"><p class="m" style="margin:0 0 12px">${P.length} waiting for review. Nothing is published until a reviewer approves it.</p>
+ ${P.map(q=>`<div class="pn"><div class="ct" style="font-size:16px">${E(q.t)}</div><div class="m sm">${E(q.by)}, ${E(q.o)}</div><div class="ft" style="border:0;padding:0"><span class="pill">${q.d=='nursing'?'Nursing':'Surgical'}</span><span class="pill">${E(q.c)}</span><span class="pill">${q.r}</span></div>
+ ${q.url?`<video src="${q.url}" controls playsinline style="width:100%;border-radius:10px;margin-top:10px"></video>`:`<div class="vid" style="margin-top:10px;border-radius:10px;background:${grad(q.id*47%360)}"><button class="pb" aria-label="Play">▶</button></div>`}
+ <p class="h" style="margin-top:12px">Draft step guide</p>${q.st.map((s,i)=>`<div class="sm" style="padding:3px 0">${i+1}. ${E(s)}</div>`).join('')}
+ <p class="h" style="margin-top:12px">Contributor confirmed</p><div class="sm" style="color:#166534">✓ Owns the rights or has permission to share</div><div class="sm" style="color:#166534">✓ No identifiable patient, or written consent held</div>
+ <p class="h" style="margin-top:12px">Reviewer checklist</p>${CHK.map((c,j)=>`<label class="ck" style="margin:6px 0"><input type="checkbox" data-c="${q.id}:${j}" ${q.chk[j]?'checked':''}>${c}</label>`).join('')}
+ <label>Note to the contributor</label><input type="text" data-n="${q.id}" value="${E(q.note)}" placeholder="Required to request changes or reject">
+ ${q.err?`<div class="err">${q.err}</div>`:''}
+ <div class="acts"><button class="btn g" data-a="dec" data-v="${q.id}:ok">Approve and publish</button><button class="btn s" data-a="dec" data-v="${q.id}:chg">Request changes</button><button class="btn r" data-a="dec" data-v="${q.id}:rej">Reject</button></div></div>`).join('')||'<div class="pn"><b>Nothing waiting</b><p class="m" style="margin:0">New submissions appear here.</p></div>'}
+ ${D.length?`<p class="h" style="margin-top:18px">Decided</p>${D.map(q=>`<div class="pn"><div class="ct">${E(q.t)}</div><div class="ft" style="border:0;padding:0"><span class="ok ${q.s=='ok'?'':'wt'}">${L[q.s]}</span></div>${q.note?`<p class="m sm" style="margin:6px 0 0">${E(q.note)}</p>`:''}</div>`).join('')}`:''}</div></div>`}
+function decide(id,k){const q=S.Q.find(x=>x.id==id);q.err='';
+ if(k=='ok'&&!q.chk.every(Boolean)){q.err='Complete every item on the checklist before approving.';return}
+ if(k!='ok'&&!q.note.trim()){q.err='Add a note so the contributor knows why.';return}
+ q.s=k;if(k=='ok'){V.push({id:V.length+1,d:q.d,c:q.c,t:q.t,by:q.by,o:q.o,r:q.r,m:q.m,st:q.st,hue:(q.id*47)%360,views:0,lk:0,days:0});toast('Approved. It now appears in Learn.')}
+ else toast(k=='chg'?'Sent back with a note.':'Rejected. The contributor is notified.')}
+function render(){const o0=[...document.querySelectorAll('.ov')].pop(),y0=o0?o0.scrollTop:0;const a=$('#app');
+ if(S.scr=='splash'){a.innerHTML=splash();return}
+ if(S.scr=='auth'){a.innerHTML=auth();return}
+ const v={home,explore,reels,friends,me}[S.tab]();
+ a.innerHTML=head()+`<main>${v}</main><nav aria-label="Main">${NAV.map(([k,l,p])=>`<button class="${S.tab==k?'on':''}" data-a="tab" data-v="${k}" aria-current="${S.tab==k?'page':'false'}">${IC(p)}${l}</button>`).join('')}</nav>`+(S.open?detail():'')+(S.add?add():'')+(S.rv?rev():'')+(S.chat?chatv():'')+(S.sheet?sheet():'');
+ if(S.add)bindDrop();
+ const o1=[...document.querySelectorAll('.ov')].pop();if(keep&&o1)o1.scrollTop=y0;if(S.chat&&o1)o1.scrollTop=o1.scrollHeight;
+}
+function bindDrop(){const z=$('#dz'),i=$('#fl');if(!z)return;
+ ['dragenter','dragover'].forEach(e=>z.addEventListener(e,x=>{x.preventDefault();z.classList.add('hot')}));
+ ['dragleave','drop'].forEach(e=>z.addEventListener(e,x=>{x.preventDefault();z.classList.remove('hot')}));
+ z.addEventListener('drop',x=>{const f=x.dataTransfer.files[0];if(f)pick(f)});
+ i.addEventListener('change',()=>{if(i.files[0])pick(i.files[0])});
+}
+function pick(f){let u='';try{u=URL.createObjectURL(f)}catch(e){}
+ S.fd.url=u;S.fd.name=f.name;S.fd.gen=1;render();
+ setTimeout(()=>{S.fd.gen=2;if(S.add)render()},1800)}
+function submit(){const f=S.fd,m=[];
+ if(!f.name)m.push('Add a video file.');if(!f.c)m.push('Choose a category.');if(!f.t.trim())m.push('Add a procedure title.');
+ if(!f.by.trim())m.push('Add your name and credentials.');if(!f.o.trim())m.push('Add your school, hospital or organization.');
+ if(!f.a)m.push('Confirm you own the rights to this video.');if(!f.b)m.push('Confirm no patient is identifiable, or that you hold written consent.');
+ f.er=m;if(m.length){render();return}
+ const id=nid++;S.Q.push({id,d:f.d,c:f.c,t:f.t.trim(),by:f.by.trim(),o:f.o.trim(),r:f.r,m:'New',url:f.url,st:f.s.map(x=>x.trim()).filter(Boolean),chk:[0,0,0,0,0],note:'',err:'',s:'pending'});S.sub.unshift(id);S.ok=true;render()}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(!b||b.tagName=='INPUT')return;const a=b.dataset.a,v=b.dataset.v;
+ if(a=='toauth'){S.scr='auth'}
+ else if(a=='au'){S.au=v}
+ else if(a=='fg'){S.fg=true}
+ else if(a=='back'){S.fg=false}
+ else if(a=='sendreset'){S.fg=false;toast('If that email has an account, a reset link is on its way.')}
+ else if(a=='login'){const em=$('#em').value.trim(),pw=$('#pw').value;
+  if(!em||!pw){$('#ae').textContent='Enter your email and password.';return}
+  const nm=S.au=='up'?$('#nm').value.trim():'';S.user={name:nm||em.split('@')[0],role:S.au=='up'&&$('#rl').value!='Learner'?'Instructor, contributor':'Learner'};S.scr='app'}
+ else if(a=='disc'){S.d=v;S.c='All'}
+ else if(a=='reg')S.r=v;
+ else if(a=='cat')S.c=v;
+ else if(a=='tab'){S.tab=v;S.open=null}
+ else if(a=='open'){S.open=+v;S.tabD='watch';S.pr=null;S.views[S.open]=(S.views[S.open]||0)+1}
+ else if(a=='closed')S.open=null;
+ else if(a=='save'){const i=+v;S.saved.has(i)?S.saved.delete(i):S.saved.add(i)}
+ else if(a=='step'){const[i,j]=v.split(':').map(Number);const d=S.done[i]=S.done[i]||[];d[j]=!d[j]}
+ else if(a=='add'){S.add=true;S.ok=false;S.fd=fresh()}
+ else if(a=='closea')S.add=false;
+ else if(a=='fd'){S.fd.d=v;S.fd.c=''}
+ else if(a=='submit')return submit();
+ else if(a=='rev')S.rv=true;
+ else if(a=='closer')S.rv=false;
+ else if(a=='dec'){const[i,k]=v.split(':');decide(+i,k)}
+ else if(a=='mysub'){S.add=false;S.tab='me'}
+ else if(a=='note')S.sheet={k:'nt'};
+ else if(a=='psh')S.sheet={k:'sh',id:+v};
+ else if(a=='shto'){(S.chats[v]=S.chats[v]||[]).push({me:1,t:'post',pid:S.sheet.id});S.sheet=null;toast('Sent to '+v.split(' ')[0]+'.')}
+ else if(a=='fadd'){S.sent.push(v);toast('Friend request sent.')}
+ else if(a=='invlink')toast('Invite link copied. Share it with someone you study with.');
+ else if(a=='chat'){S.chat=v;S.unread[v]=0}
+ else if(a=='cx')S.chat=null;
+ else if(a=='msend'){const x=$('#mi').value.trim();if(!x)return;const nm=S.chat,f=S.fr.find(y=>y.n==nm);(S.chats[nm]=S.chats[nm]||[]).push({me:1,t:'text',x});if(f.on)setTimeout(()=>{S.chats[nm].push({me:0,t:'text',x:'Got it, thanks.'});if(S.chat==nm)render()},1600)}
+ else if(a=='invsheet'){S.iv=freshIv();S.sheet={k:'iv'}}
+ else if(a=='ivsend'){const f=S.iv;if(!f.when){f.er='Choose a date and time.';render();return}
+  const nm=S.chat,fr=S.fr.find(x=>x.n==nm),when=new Date(f.when).toLocaleString('en-GB',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  const m={me:1,t:'invite',vid:+f.vid,when,note:f.note,st:'pending'};(S.chats[nm]=S.chats[nm]||[]).push(m);S.sheet=null;toast(fr.on?'Invite sent.':'Invite sent as a notification.');
+  if(fr.on)setTimeout(()=>{m.st='accepted';S.chats[nm].push({me:0,t:'text',x:'Accepted. I’ll be there.'});if(S.chat==nm)render()},2200)}
+ else if(a=='remind'){const nm=S.chat,fr=S.fr.find(x=>x.n==nm),m=S.chats[nm][+v];S.chats[nm].push({me:1,t:'remind',vid:m.vid});toast(fr.on?'Reminder sent.':'Reminder sent as a notification.')}
+ else if(a=='nta'||a=='ntd'){const n=S.nt.find(x=>x.id==+v);if(a=='ntd')n.st='declined';else if(n.t=='req'){n.st='done';S.fr.push({n:n.from,on:1,role:'Clinical instructor'})}else{n.st='accepted';(S.chats[n.from]=S.chats[n.from]||[]).push({me:1,t:'text',x:'Accepted. See you then.'})}}
+ else if(a=='dtab')S.tabD=v;
+ else if(a=='plike'||a=='vlike'){const k=(a=='plike'?'p':'v')+v;S.lk.has(k)?S.lk.delete(k):S.lk.add(k)}
+ else if(a=='pcom')S.sheet={k:'c',t:'p',id:+v};
+ else if(a=='vcom')S.sheet={k:'c',t:'v',id:+v};
+ else if(a=='pro')S.sheet={k:'pro',by:v};
+ else if(a=='prep')S.sheet={k:'r',id:+v};
+ else if(a=='rsend'){S.sheet=null;toast('Thanks. A moderator will review this post.')}
+ else if(a=='xs')S.sheet=null;
+ else if(a=='newpost'){S.pf=freshPf();S.sheet={k:'n'}}
+ else if(a=='pk'){if(S.pf.k!=v){S.pf.url='';S.pf.name=''}S.pf.k=v}
+ else if(a=='tryit'){S.open=+v;S.tabD='practice';S.pr=null}
+ else if(a=='csend'){const x=$('#ci').value.trim();if(!x)return;const s=S.sheet,L=s.t=='p'?S.posts.find(y=>y.id==s.id).cm:(S.vc[s.id]=S.vc[s.id]||[]);L.push({n:S.user.name,t:x,ago:'now'})}
+ else if(a=='psend'){const f=S.pf;
+  if(!f.url&&!f.name){f.er='Choose or record a video or photo first.';render();return}
+  if(!f.cap.trim()){f.er='Add a caption.';render();return}
+  if(!f.a){f.er='Confirm no patient can be identified and that you can share this.';render();return}
+  S.posts.unshift({id:nid++,k:f.k=='photo'?'photo':'video',by:S.user.name,role:S.user.role,org:'',reg:'',bio:'',verified:false,g:f.g,cap:f.cap.trim(),hue:200,ago:'Just now',views:0,likes:0,cm:[],url:f.url,img:f.isImg});S.sheet=null;toast('Posted to Reels.')}
+ else if(a.startsWith('pr-'))prAct(a,+v);
+ else if(a=='out'){S.scr='auth';S.au='in';S.tab='home'}
+ keep=['psh','shto','fadd','invlink','chat','cx','msend','invsheet','ivsend','remind','nta','ntd','note','plike','vlike','pcom','vcom','pro','prep','rsend','xs','newpost','pk','csend','psend','step','save','pr-o','pr-q','pr-m','pr-chk','pr-reset','pr-rev','dec'].includes(a);render();if(!keep)scrollTo(0,0)});
+document.addEventListener('keydown',e=>{if(e.key!='Enter')return;const id=e.target.id,b=id=='mi'?'msend':id=='ci'?'csend':'';if(b){e.preventDefault();document.querySelector('[data-a='+b+']').click()}});
+document.addEventListener('input',e=>{const t=e.target;
+ if(t.id=='q'){S.q=t.value;$('#res').innerHTML=cards();return}
+ if(t.dataset.s!=null){S.fd.s[+t.dataset.s]=t.value;return}
+ if(t.dataset.r){S.pr.ref=t.value;return}
+ if(t.dataset.share!=null){S.share=t.checked;return}
+ if(t.id=='fq'){S.fq=t.value;$('#fres').innerHTML=fres();return}
+ if(t.dataset.iv){S.iv[t.dataset.iv]=t.value;return}
+ if(t.dataset.p){S.pf[t.dataset.p]=t.type=='checkbox'?t.checked:t.value;return}
+ if(t.dataset.c){const[i,j]=t.dataset.c.split(':').map(Number);S.Q.find(x=>x.id==i).chk[j]=t.checked?1:0;return}
+ if(t.dataset.n){S.Q.find(x=>x.id==+t.dataset.n).note=t.value;return}
+ const f=t.dataset.f;if(f)S.fd[f]=t.type=='checkbox'?t.checked:t.value});
+document.addEventListener('change',e=>{const t=e.target,f=t.files&&t.files[0];if(t.dataset.a!='pfile'||!f)return;let u='';try{u=URL.createObjectURL(f)}catch(x){}S.pf.url=u;S.pf.name=f.name;S.pf.isImg=f.type.startsWith('image');render()});
+setTimeout(()=>{if(S.scr=='splash'){S.scr='auth';render()}},2400);
+render();
+</script></body></html>
