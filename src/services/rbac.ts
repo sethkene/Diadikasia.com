@@ -7,13 +7,15 @@ import type {
   ContributeForm,
   Discipline,
   InstructorApplication,
-  ProcedureVideo,
   ReelPost,
   Region,
   ReportedPost,
   SubmissionItem,
   SubmissionStatus,
 } from '../types';
+import { promoteSubmissionVideoToPublicStorage } from './procedures';
+
+export { fetchPublishedProcedures } from './procedures';
 
 function formatRelativeTime(iso: string | null | undefined): string {
   if (!iso) return 'Recently';
@@ -387,6 +389,28 @@ export async function reviewVideoSubmissionRpc(
     return { error: supabaseConfigError };
   }
 
+  if (decision === 'ok') {
+    const { data: subRow, error: subErr } = await supabase
+      .from('video_submissions')
+      .select('storage_path')
+      .eq('id', submissionId)
+      .maybeSingle();
+
+    if (subErr) {
+      return { error: subErr.message };
+    }
+
+    const storagePath =
+      typeof subRow?.storage_path === 'string' ? subRow.storage_path.trim() : '';
+    if (storagePath) {
+      const { error: promoteErr } =
+        await promoteSubmissionVideoToPublicStorage(storagePath);
+      if (promoteErr) {
+        return { error: promoteErr };
+      }
+    }
+  }
+
   const { data, error } = await supabase.rpc('review_video_submission', {
     p_submission_id: submissionId,
     p_decision: decision,
@@ -497,81 +521,7 @@ export async function moderateReportedPostRpc(
   return {};
 }
 
-interface ProcedureRow {
-  id: number;
-  discipline: Discipline;
-  category: string;
-  title: string;
-  instructor_display: string;
-  organization: string;
-  region: Region;
-  duration: string;
-  steps: unknown;
-  hue: number;
-  storage_path: string | null;
-  external_video_url: string | null;
-  views_count: number;
-  likes_count: number;
-  created_at: string;
-}
 
-export async function fetchPublishedProcedures(): Promise<{
-  procedures: ProcedureVideo[];
-  error?: string;
-}> {
-  if (!isSupabaseConfigured || !supabase) {
-    return { procedures: [] };
-  }
-
-  const { data, error } = await supabase
-    .from('procedures')
-    .select(
-      'id, discipline, category, title, instructor_display, organization, region, duration, steps, hue, storage_path, external_video_url, views_count, likes_count, created_at',
-    )
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    return { procedures: [], error: error.message };
-  }
-
-  const rows = (data || []) as ProcedureRow[];
-  const procedures = await Promise.all(
-    rows.map(async (row): Promise<ProcedureVideo> => {
-      let videoUrl = row.external_video_url || undefined;
-      if (!videoUrl && row.storage_path && supabase) {
-        const { data: pub } = supabase.storage
-          .from('procedures-public')
-          .getPublicUrl(row.storage_path);
-        if (pub?.publicUrl) {
-          videoUrl = pub.publicUrl;
-        }
-      }
-      const createdMs = new Date(row.created_at).getTime();
-      const daysAgo = Number.isNaN(createdMs)
-        ? 0
-        : Math.max(0, Math.floor((Date.now() - createdMs) / 86400000));
-
-      return {
-        id: row.id,
-        discipline: row.discipline,
-        category: row.category,
-        title: row.title,
-        instructor: row.instructor_display,
-        organization: row.organization,
-        region: row.region,
-        duration: row.duration || 'New',
-        steps: Array.isArray(row.steps) ? row.steps.map((s) => String(s)) : [],
-        hue: typeof row.hue === 'number' ? row.hue : 190,
-        views: row.views_count || 0,
-        likes: row.likes_count || 0,
-        daysAgo,
-        videoUrl,
-      };
-    }),
-  );
-
-  return { procedures };
-}
 
 interface ReelRow {
   id: number;

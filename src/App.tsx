@@ -91,7 +91,6 @@ import {
   appointOrUpdateSubAdminRpc,
   fetchInstructorApplications,
   fetchPostReports,
-  fetchPublishedProcedures,
   fetchVideoSubmissions,
   fetchVisibleReels,
   moderateReportedPostRpc,
@@ -103,6 +102,19 @@ import {
   submitPostReportToSupabase,
   submitVideoForReviewToSupabase,
 } from './services/rbac';
+import {
+  addProcedureCommentInSupabase,
+  fetchMyProcedureLikes,
+  fetchMyProcedureProgress,
+  fetchMySavedProcedureIds,
+  fetchProcedureComments,
+  fetchPublishedProcedures,
+  incrementProcedureViewRpc,
+  queryPublishedProcedures,
+  setProcedureLikeInSupabase,
+  setSavedProcedureInSupabase,
+  upsertProcedureProgressInSupabase,
+} from './services/procedures';
 
 const NAV_ITEMS: Array<{
   id: MainTab;
@@ -180,8 +192,18 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const [videos, setVideos] = useState<ProcedureVideo[]>(() =>
-    readStored(STORAGE_KEYS.videos, INITIAL_VIDEOS),
+    isSupabaseConfigured ? [] : readStored(STORAGE_KEYS.videos, INITIAL_VIDEOS),
   );
+  const [libraryVideos, setLibraryVideos] = useState<ProcedureVideo[]>([]);
+  const [proceduresLoading, setProceduresLoading] = useState<boolean>(
+    isSupabaseConfigured,
+  );
+  const [libraryFilterLoading, setLibraryFilterLoading] = useState<boolean>(
+    isSupabaseConfigured,
+  );
+  const [proceduresError, setProceduresError] = useState<string | null>(null);
+  const [proceduresReloadSeq, setProceduresReloadSeq] = useState<number>(0);
+
   const [openVideoId, setOpenVideoId] = useState<number | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>('watch');
   const [practiceSession, setPracticeSession] =
@@ -189,19 +211,32 @@ export default function App() {
 
   const [completedStepsMap, setCompletedStepsMap] = useState<
     Record<number, boolean[]>
-  >(() => readStored(STORAGE_KEYS.completedSteps, {}));
-  const [savedIds, setSavedIds] = useState<Set<number>>(
-    () => new Set(readStored<number[]>(STORAGE_KEYS.savedIds, [])),
+  >(() =>
+    isSupabaseConfigured ? {} : readStored(STORAGE_KEYS.completedSteps, {}),
   );
-  const [likedKeys, setLikedKeys] = useState<Set<string>>(
-    () => new Set(readStored<string[]>(STORAGE_KEYS.likedKeys, [])),
+  const [savedIds, setSavedIds] = useState<Set<number>>(() =>
+    isSupabaseConfigured
+      ? new Set()
+      : new Set(readStored<number[]>(STORAGE_KEYS.savedIds, [])),
   );
+  const [likedKeys, setLikedKeys] = useState<Set<string>>(() => {
+    const stored = readStored<string[]>(STORAGE_KEYS.likedKeys, []);
+    return new Set(
+      isSupabaseConfigured
+        ? stored.filter((k) => !k.startsWith('v'))
+        : stored,
+    );
+  });
   const [extraViews, setExtraViews] = useState<Record<number, number>>(() =>
-    readStored(STORAGE_KEYS.extraViews, {}),
+    isSupabaseConfigured ? {} : readStored(STORAGE_KEYS.extraViews, {}),
   );
   const [videoComments, setVideoComments] = useState<
     Record<number, CommentItem[]>
-  >(() => readStored(STORAGE_KEYS.videoComments, INITIAL_VIDEO_COMMENTS));
+  >(() =>
+    isSupabaseConfigured
+      ? {}
+      : readStored(STORAGE_KEYS.videoComments, INITIAL_VIDEO_COMMENTS),
+  );
 
   const [posts, setPosts] = useState<ReelPost[]>(() =>
     readStored(STORAGE_KEYS.posts, INITIAL_POSTS),
@@ -250,7 +285,7 @@ export default function App() {
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [postForm, setPostForm] = useState<NewPostForm>(createDefaultPostForm);
   const [inviteForm, setInviteForm] = useState<InviteForm>(() =>
-    createDefaultInvite(INITIAL_VIDEOS[0].id),
+    createDefaultInvite(isSupabaseConfigured ? 1 : INITIAL_VIDEOS[0].id),
   );
 
   const [toastMsg, setToastMsg] = useState<string>('');
@@ -262,6 +297,8 @@ export default function App() {
   const recoveryModeRef = useRef<boolean>(false);
   const contributeFileRef = useRef<File | null>(null);
   const lastProfileRefreshRef = useRef<number>(0);
+  const serverLikedProcIdsRef = useRef<Set<number>>(new Set());
+  const filterRequestIdRef = useRef<number>(0);
   const userRef = useRef<UserProfile>(user);
   userRef.current = user;
 
@@ -279,6 +316,20 @@ export default function App() {
           STORAGE_KEYS.submissions,
           JSON.stringify(submissionsQueue),
         );
+        localStorage.setItem(STORAGE_KEYS.videos, JSON.stringify(videos));
+        localStorage.setItem(
+          STORAGE_KEYS.savedIds,
+          JSON.stringify(Array.from(savedIds)),
+        );
+        localStorage.setItem(
+          STORAGE_KEYS.completedSteps,
+          JSON.stringify(completedStepsMap),
+        );
+        localStorage.setItem(STORAGE_KEYS.extraViews, JSON.stringify(extraViews));
+        localStorage.setItem(
+          STORAGE_KEYS.videoComments,
+          JSON.stringify(videoComments),
+        );
       }
       localStorage.setItem(STORAGE_KEYS.posts, JSON.stringify(posts));
       localStorage.setItem(STORAGE_KEYS.signals, JSON.stringify(reelSignals));
@@ -287,23 +338,13 @@ export default function App() {
         STORAGE_KEYS.sharePopups,
         JSON.stringify(shareEnabled),
       );
-      localStorage.setItem(STORAGE_KEYS.videos, JSON.stringify(videos));
-      localStorage.setItem(
-        STORAGE_KEYS.savedIds,
-        JSON.stringify(Array.from(savedIds)),
-      );
       localStorage.setItem(
         STORAGE_KEYS.likedKeys,
-        JSON.stringify(Array.from(likedKeys)),
-      );
-      localStorage.setItem(
-        STORAGE_KEYS.completedSteps,
-        JSON.stringify(completedStepsMap),
-      );
-      localStorage.setItem(STORAGE_KEYS.extraViews, JSON.stringify(extraViews));
-      localStorage.setItem(
-        STORAGE_KEYS.videoComments,
-        JSON.stringify(videoComments),
+        JSON.stringify(
+          isSupabaseConfigured
+            ? Array.from(likedKeys).filter((k) => !k.startsWith('v'))
+            : Array.from(likedKeys),
+        ),
       );
       localStorage.setItem(STORAGE_KEYS.friends, JSON.stringify(friends));
       localStorage.setItem(
@@ -353,76 +394,138 @@ export default function App() {
     }, 2600);
   }, []);
 
-  const syncRoleScopedData = useCallback(async (activeUser: UserProfile) => {
-    if (!isSupabaseConfigured || !activeUser.id) return;
+  const applyLikedBaseline = useCallback(
+    (list: ProcedureVideo[], likedIdSet: Set<number>): ProcedureVideo[] =>
+      list.map((v) => ({
+        ...v,
+        likes: Math.max(0, v.likes - (likedIdSet.has(v.id) ? 1 : 0)),
+      })),
+    [],
+  );
 
-    const isAdminUser = activeUser.role === 'admin';
-    const canSeeSubmissions =
-      activeUser.role === 'instructor' ||
-      isAdminUser ||
-      (activeUser.role === 'sub_admin' &&
-        Boolean(activeUser.permissions?.canReviewVideos));
-    const canSeeModerationReports =
-      isAdminUser ||
-      (activeUser.role === 'sub_admin' &&
-        Boolean(activeUser.permissions?.canModeratePosts));
+  const syncRoleScopedData = useCallback(
+    async (activeUser: UserProfile) => {
+      if (!isSupabaseConfigured || !activeUser.id) return;
 
-    const [
-      directory,
-      appsRes,
-      subsRes,
-      reportsRes,
-      procsRes,
-      reelsRes,
-    ] = await Promise.all([
-      fetchDirectoryProfiles(isAdminUser),
-      fetchInstructorApplications(),
-      canSeeSubmissions
-        ? fetchVideoSubmissions()
-        : Promise.resolve({
-            submissions: [] as SubmissionItem[],
-            error: undefined as string | undefined,
-          }),
-      canSeeModerationReports
-        ? fetchPostReports()
-        : Promise.resolve({
-            reports: [] as ReportedPost[],
-            error: undefined as string | undefined,
-          }),
-      fetchPublishedProcedures(),
-      fetchVisibleReels(),
-    ]);
+      setProceduresLoading(true);
 
-    setAccounts(directory);
-    if (!appsRes.error) {
-      setApplications(appsRes.applications);
-    }
-    if (!subsRes.error) {
-      setSubmissionsQueue((prev) => {
-        const draftById = new Map(prev.map((item) => [item.id, item]));
-        return subsRes.submissions.map((remote) => {
-          const localDraft = draftById.get(remote.id);
-          if (localDraft && remote.status === 'pending') {
-            return {
-              ...remote,
-              checks: localDraft.checks,
-              note: localDraft.note || remote.note,
-            };
-          }
-          return remote;
-        });
-      });
-    }
-    if (!reportsRes.error) {
-      setReports(reportsRes.reports);
-    }
-    if (!procsRes.error && procsRes.procedures.length > 0) {
-      setVideos(procsRes.procedures);
-    }
-    if (!reelsRes.error && reelsRes.reels.length > 0) {
-      setPosts(reelsRes.reels);
-    }
-  }, []);
+      const isAdminUser = activeUser.role === 'admin';
+      const canSeeSubmissions =
+        activeUser.role === 'instructor' ||
+        isAdminUser ||
+        (activeUser.role === 'sub_admin' &&
+          Boolean(activeUser.permissions?.canReviewVideos));
+      const canSeeModerationReports =
+        isAdminUser ||
+        (activeUser.role === 'sub_admin' &&
+          Boolean(activeUser.permissions?.canModeratePosts));
+
+      try {
+        const [
+          directory,
+          appsRes,
+          subsRes,
+          reportsRes,
+          procsRes,
+          savedRes,
+          progressRes,
+          likesRes,
+          commentsRes,
+          reelsRes,
+        ] = await Promise.all([
+          fetchDirectoryProfiles(isAdminUser),
+          fetchInstructorApplications(),
+          canSeeSubmissions
+            ? fetchVideoSubmissions()
+            : Promise.resolve({
+                submissions: [] as SubmissionItem[],
+                error: undefined as string | undefined,
+              }),
+          canSeeModerationReports
+            ? fetchPostReports()
+            : Promise.resolve({
+                reports: [] as ReportedPost[],
+                error: undefined as string | undefined,
+              }),
+          fetchPublishedProcedures(),
+          fetchMySavedProcedureIds(activeUser.id),
+          fetchMyProcedureProgress(activeUser.id),
+          fetchMyProcedureLikes(activeUser.id),
+          fetchProcedureComments(),
+          fetchVisibleReels(),
+        ]);
+
+        setAccounts(directory);
+        if (!appsRes.error) {
+          setApplications(appsRes.applications);
+        }
+        if (!subsRes.error) {
+          setSubmissionsQueue((prev) => {
+            const draftById = new Map(prev.map((item) => [item.id, item]));
+            return subsRes.submissions.map((remote) => {
+              const localDraft = draftById.get(remote.id);
+              if (localDraft && remote.status === 'pending') {
+                return {
+                  ...remote,
+                  checks: localDraft.checks,
+                  note: localDraft.note || remote.note,
+                };
+              }
+              return remote;
+            });
+          });
+        }
+        if (!reportsRes.error) {
+          setReports(reportsRes.reports);
+        }
+
+        let nextLikedSet = serverLikedProcIdsRef.current;
+        if (!likesRes.error) {
+          nextLikedSet = new Set(likesRes.likedIds);
+          serverLikedProcIdsRef.current = nextLikedSet;
+          setLikedKeys((prev) => {
+            const next = new Set(
+              Array.from(prev).filter((k) => !k.startsWith('v')),
+            );
+            for (const id of likesRes.likedIds) {
+              next.add(`v${id}`);
+            }
+            return next;
+          });
+        }
+
+        if (!savedRes.error) {
+          setSavedIds(new Set(savedRes.savedIds));
+        }
+
+        if (!progressRes.error) {
+          setCompletedStepsMap(progressRes.progressMap);
+        }
+
+        if (!commentsRes.error) {
+          setVideoComments(commentsRes.commentsByProcedure);
+        }
+
+        if (procsRes.error) {
+          setProceduresError(procsRes.error);
+          setVideos([]);
+          setLibraryVideos([]);
+        } else {
+          setProceduresError(null);
+          setVideos(applyLikedBaseline(procsRes.procedures, nextLikedSet));
+          setExtraViews({});
+          setProceduresReloadSeq((n) => n + 1);
+        }
+
+        if (!reelsRes.error && reelsRes.reels.length > 0) {
+          setPosts(reelsRes.reels);
+        }
+      } finally {
+        setProceduresLoading(false);
+      }
+    },
+    [applyLikedBaseline],
+  );
 
   const refreshAuthoritativeProfile = useCallback(
     async (force = false) => {
@@ -545,6 +648,18 @@ export default function App() {
       setApplications([]);
       setSubmissionsQueue([]);
       setReports([]);
+      setVideos([]);
+      setLibraryVideos([]);
+      setProceduresError(null);
+      setSavedIds(new Set());
+      setCompletedStepsMap({});
+      setExtraViews({});
+      setVideoComments({});
+      serverLikedProcIdsRef.current = new Set();
+      setLikedKeys((prev) => {
+        const next = new Set(Array.from(prev).filter((k) => !k.startsWith('v')));
+        return next;
+      });
       if (notice) {
         setAuthNotice(notice);
       }
@@ -780,6 +895,51 @@ export default function App() {
     }
   }, [screen, activeTab, user.id, refreshAuthoritativeProfile]);
 
+  // Query Supabase published procedure library when filters or search change
+  useEffect(() => {
+    if (!isSupabaseConfigured || screen !== 'app' || !user.id) return;
+
+    let active = true;
+    const reqId = ++filterRequestIdRef.current;
+    const debounceMs = searchQuery.trim() ? 180 : 0;
+
+    setLibraryFilterLoading(true);
+    const timer = window.setTimeout(async () => {
+      const { procedures, error } = await queryPublishedProcedures({
+        discipline,
+        region: regionFilter,
+        category: categoryFilter,
+        searchQuery,
+      });
+      if (!active || reqId !== filterRequestIdRef.current) return;
+
+      if (error) {
+        setProceduresError(error);
+        setLibraryVideos([]);
+      } else {
+        setProceduresError(null);
+        setLibraryVideos(
+          applyLikedBaseline(procedures, serverLikedProcIdsRef.current),
+        );
+      }
+      setLibraryFilterLoading(false);
+    }, debounceMs);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [
+    screen,
+    user.id,
+    discipline,
+    regionFilter,
+    categoryFilter,
+    searchQuery,
+    proceduresReloadSeq,
+    applyLikedBaseline,
+  ]);
+
   useEffect(() => {
     if (screen !== 'splash') return;
     const t = window.setTimeout(() => {
@@ -837,6 +997,18 @@ export default function App() {
       setApplications([]);
       setSubmissionsQueue([]);
       setReports([]);
+      setVideos([]);
+      setLibraryVideos([]);
+      setProceduresError(null);
+      setSavedIds(new Set());
+      setCompletedStepsMap({});
+      setExtraViews({});
+      setVideoComments({});
+      serverLikedProcIdsRef.current = new Set();
+      setLikedKeys((prev) => {
+        const next = new Set(Array.from(prev).filter((k) => !k.startsWith('v')));
+        return next;
+      });
     }
     setScreen('auth');
     setAuthMode('in');
@@ -859,7 +1031,7 @@ export default function App() {
     isAdmin ||
     (user.role === 'sub_admin' && Boolean(user.permissions?.canModeratePosts));
 
-  const filteredVideos = useMemo(() => {
+  const localFilteredVideos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return videos.filter((v) => {
       if (v.discipline !== discipline) return false;
@@ -873,6 +1045,10 @@ export default function App() {
         .includes(q);
     });
   }, [videos, discipline, regionFilter, categoryFilter, searchQuery]);
+
+  const displayedVideos = isSupabaseConfigured
+    ? libraryVideos
+    : localFilteredVideos;
 
   const savedVideos = useMemo(
     () => videos.filter((v) => savedIds.has(v.id)),
@@ -939,7 +1115,9 @@ export default function App() {
   );
 
   const openProcedure = (videoId: number, initialTab: DetailTab = 'watch') => {
-    const target = videos.find((v) => v.id === videoId);
+    const target =
+      videos.find((v) => v.id === videoId) ||
+      libraryVideos.find((v) => v.id === videoId);
     if (!target) return;
     setOpenVideoId(videoId);
     setDetailTab(initialTab);
@@ -948,11 +1126,16 @@ export default function App() {
       ...prev,
       [videoId]: (prev[videoId] || 0) + 1,
     }));
+    if (isSupabaseConfigured) {
+      void incrementProcedureViewRpc(videoId);
+    }
     boostAffinity(target.discipline, target.category, initialTab === 'practice' ? 2 : 1);
   };
 
   const toggleSaveVideo = (videoId: number) => {
-    const target = videos.find((v) => v.id === videoId);
+    const target =
+      videos.find((v) => v.id === videoId) ||
+      libraryVideos.find((v) => v.id === videoId);
     const willSave = !savedIds.has(videoId);
     setSavedIds((prev) => {
       const next = new Set(prev);
@@ -964,6 +1147,21 @@ export default function App() {
       boostAffinity(target.discipline, target.category, 2);
     }
     triggerHaptic('light');
+
+    if (isSupabaseConfigured && user.id) {
+      void setSavedProcedureInSupabase(user.id, videoId, willSave).then(
+        ({ error }) => {
+          if (!error) return;
+          setSavedIds((prev) => {
+            const rollback = new Set(prev);
+            if (willSave) rollback.delete(videoId);
+            else rollback.add(videoId);
+            return rollback;
+          });
+          showToast(error);
+        },
+      );
+    }
   };
 
   const toggleLikeKey = (key: string) => {
@@ -980,6 +1178,24 @@ export default function App() {
       if (post) boostAffinity(post.discipline, post.category, 2);
     }
     triggerHaptic('light');
+
+    if (isSupabaseConfigured && user.id && key.startsWith('v')) {
+      const videoId = Number(key.slice(1));
+      if (!Number.isNaN(videoId)) {
+        void setProcedureLikeInSupabase(user.id, videoId, willLike).then(
+          ({ error }) => {
+            if (!error) return;
+            setLikedKeys((prev) => {
+              const rollback = new Set(prev);
+              if (willLike) rollback.delete(key);
+              else rollback.add(key);
+              return rollback;
+            });
+            showToast(error);
+          },
+        );
+      }
+    }
   };
 
   const ensureLikePost = (postId: number) => {
@@ -995,11 +1211,36 @@ export default function App() {
   };
 
   const toggleStepDone = (videoId: number, stepIndex: number) => {
-    setCompletedStepsMap((prev) => {
-      const existing = [...(prev[videoId] || [])];
-      existing[stepIndex] = !existing[stepIndex];
-      return { ...prev, [videoId]: existing };
-    });
+    const target =
+      videos.find((v) => v.id === videoId) ||
+      libraryVideos.find((v) => v.id === videoId);
+    const totalLen = Math.max(
+      target?.steps.length || 0,
+      (completedStepsMap[videoId] || []).length,
+      stepIndex + 1,
+    );
+    const prevSteps = completedStepsMap[videoId] || [];
+    const nextSteps = Array.from({ length: totalLen }, (_, idx) =>
+      idx === stepIndex ? !prevSteps[idx] : Boolean(prevSteps[idx]),
+    );
+
+    setCompletedStepsMap((prev) => ({
+      ...prev,
+      [videoId]: nextSteps,
+    }));
+
+    if (isSupabaseConfigured && user.id) {
+      void upsertProcedureProgressInSupabase(user.id, videoId, nextSteps).then(
+        ({ error }) => {
+          if (!error) return;
+          setCompletedStepsMap((prev) => ({
+            ...prev,
+            [videoId]: prevSteps,
+          }));
+          showToast(error);
+        },
+      );
+    }
   };
 
   const postPracticeToReels = (
@@ -1866,13 +2107,14 @@ export default function App() {
     showToast('Feed preferences reset.');
   };
 
-  const handleAddComment = (
+  const handleAddComment = async (
     target: 'post' | 'video',
     id: number,
     text: string,
   ) => {
+    const authorName = user.name || 'Learner';
     const newComment: CommentItem = {
-      name: user.name || 'Learner',
+      name: authorName,
       text,
       ago: 'now',
     };
@@ -1882,12 +2124,31 @@ export default function App() {
           p.id === id ? { ...p, comments: [...p.comments, newComment] } : p,
         ),
       );
-    } else {
+      return;
+    }
+
+    if (isSupabaseConfigured && user.id) {
+      const { comment, error } = await addProcedureCommentInSupabase(
+        id,
+        user.id,
+        authorName,
+        text,
+      );
+      if (error || !comment) {
+        showToast(error || 'Unable to save comment.');
+        return;
+      }
       setVideoComments((prev) => ({
         ...prev,
-        [id]: [...(prev[id] || []), newComment],
+        [id]: [...(prev[id] || []), comment],
       }));
+      return;
     }
+
+    setVideoComments((prev) => ({
+      ...prev,
+      [id]: [...(prev[id] || []), newComment],
+    }));
   };
 
   const handleSendMessage = (friendName: string, text: string) => {
@@ -2069,7 +2330,9 @@ export default function App() {
 
   const openVideo =
     openVideoId !== null
-      ? videos.find((v) => v.id === openVideoId) || null
+      ? videos.find((v) => v.id === openVideoId) ||
+        libraryVideos.find((v) => v.id === openVideoId) ||
+        null
       : null;
 
   const showLibraryFilters = activeTab === 'home' || activeTab === 'explore';
@@ -2167,7 +2430,53 @@ export default function App() {
   };
 
   const renderProcedureGrid = () => {
-    if (filteredVideos.length === 0) {
+    const isInitialLoad =
+      isSupabaseConfigured &&
+      (proceduresLoading || libraryFilterLoading) &&
+      displayedVideos.length === 0;
+
+    if (isInitialLoad) {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[0, 1, 2].map((idx) => (
+            <div
+              key={idx}
+              className="bg-white border border-slate-200 rounded-2xl overflow-hidden animate-pulse"
+            >
+              <div className="aspect-video bg-slate-200" />
+              <div className="p-4 space-y-2.5">
+                <div className="h-3 w-24 bg-slate-200 rounded" />
+                <div className="h-4 w-3/4 bg-slate-200 rounded" />
+                <div className="h-3 w-1/2 bg-slate-200 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (isSupabaseConfigured && proceduresError) {
+      return (
+        <div className="bg-white border border-red-200 rounded-2xl p-6 max-w-lg">
+          <div className="font-display font-bold text-base text-slate-900">
+            Unable to load published procedures
+          </div>
+          <p className="text-sm text-slate-600 mt-1">{proceduresError}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setProceduresError(null);
+              void syncRoleScopedData(user);
+            }}
+            className="mt-4 px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm min-h-[44px] transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
+    if (displayedVideos.length === 0) {
       return (
         <div className="bg-white border border-slate-200 rounded-2xl p-6 max-w-lg">
           <div className="font-display font-bold text-base text-slate-900">
@@ -2203,7 +2512,7 @@ export default function App() {
 
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredVideos.map((v) => (
+        {displayedVideos.map((v) => (
           <ProcedureCard
             key={v.id}
             video={v}
@@ -2309,13 +2618,15 @@ export default function App() {
                 {discipline === 'nursing' ? 'Nursing' : 'Surgical'} procedures
               </h1>
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500 tabular-nums">
-                {filteredVideos.length} videos
+                {displayedVideos.length} videos
               </span>
             </div>
             {renderProcedureGrid()}
-            <p className="text-xs text-slate-400 pt-2">
-              Sample content for demonstration only.
-            </p>
+            {!isSupabaseConfigured && (
+              <p className="text-xs text-slate-400 pt-2">
+                Sample content for demonstration only.
+              </p>
+            )}
           </section>
         )}
 
@@ -2407,7 +2718,7 @@ export default function App() {
             onCopyInviteLink={handleCopyInviteLink}
             onSendMessage={handleSendMessage}
             onOpenStudyInvite={() => {
-              setInviteForm(createDefaultInvite(videos[0].id));
+              setInviteForm(createDefaultInvite(videos[0]?.id ?? 1));
               setSheet({ kind: 'invite' });
             }}
             onSendReminder={handleSendReminder}

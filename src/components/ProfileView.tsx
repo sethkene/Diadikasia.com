@@ -1143,6 +1143,46 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </span>
               </button>
             </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-display font-bold text-sm text-slate-900">
+                  Published procedure library
+                </div>
+                <span className="text-xs font-semibold text-slate-500 tabular-nums">
+                  {videos.length} live
+                </span>
+              </div>
+              {videos.length > 0 ? (
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
+                  {videos.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => onOpenVideo(v.id)}
+                      className="w-full flex items-center justify-between gap-3 p-2.5 rounded-xl border border-slate-200 hover:border-teal-400 hover:bg-teal-50/40 text-left transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-900 truncate">
+                          {v.title}
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {v.discipline === 'nursing' ? 'Nursing' : 'Surgical'} ·{' '}
+                          {v.category} · {v.region}
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-semibold text-teal-600 shrink-0">
+                        View
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  No published procedures loaded yet.
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="lg:col-span-7 space-y-3">
