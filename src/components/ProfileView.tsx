@@ -40,17 +40,17 @@ interface ProfileViewProps {
   onOpenApplyInstructor: () => void;
   onApproveApplication: (appId: number) => void;
   onDeclineApplication: (appId: number, note: string) => void;
-  onRevokeInstructor: (email: string) => void;
+  onRevokeInstructor: (account: UserProfile) => void;
   onAddSubAdmin: (data: {
     name: string;
     email: string;
     permissions: StaffPermissions;
-  }) => string | null;
+  }) => Promise<string | null> | string | null;
   onUpdateSubAdminPermissions: (
-    email: string,
+    account: UserProfile,
     permissions: StaffPermissions,
   ) => void;
-  onRemoveSubAdmin: (email: string) => void;
+  onRemoveSubAdmin: (account: UserProfile) => void;
   onModerateReport: (reportId: number, action: 'removed' | 'dismissed') => void;
   onOpenContribute: () => void;
   onOpenReviewQueue: () => void;
@@ -66,7 +66,12 @@ const STATUS_LABELS: Record<SubmissionItem['status'], string> = {
   rej: 'Not published',
 };
 
-type AdminSection = 'applications' | 'instructors' | 'staff' | 'moderation';
+type AdminSection =
+  | 'applications'
+  | 'instructors'
+  | 'staff'
+  | 'moderation'
+  | 'users';
 
 function formatYoutubeHref(handle: string): string {
   const trimmed = handle.trim();
@@ -116,6 +121,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [staffCanReview, setStaffCanReview] = useState(true);
   const [staffCanModerate, setStaffCanModerate] = useState(true);
   const [staffErr, setStaffErr] = useState('');
+  const [staffSaving, setStaffSaving] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
 
   const pendingVideosCount = submissions.filter(
     (s) => s.status === 'pending',
@@ -124,6 +131,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const pendingApps = applications.filter((a) => a.status === 'pending');
   const approvedInstructors = accounts.filter((a) => a.role === 'instructor');
   const subAdmins = accounts.filter((a) => a.role === 'sub_admin');
+  const learners = accounts.filter((a) => a.role === 'learner');
+  const admins = accounts.filter((a) => a.role === 'admin');
 
   const myApplication = applications.find(
     (a) => a.email.toLowerCase() === user.email.toLowerCase(),
@@ -598,29 +607,42 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   }
 
   // 4. SUPREME ADMIN SEPARATE PORTAL
-  const handleAddStaffSubmit = (e: React.FormEvent) => {
+  const handleAddStaffSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (staffSaving) return;
     if (!staffName.trim() || !staffEmail.trim()) {
       setStaffErr('Enter full name and email.');
       return;
     }
-    const err = onAddSubAdmin({
-      name: staffName.trim(),
-      email: staffEmail.trim().toLowerCase(),
-      permissions: {
-        canReviewVideos: staffCanReview,
-        canModeratePosts: staffCanModerate,
-      },
-    });
-    if (err) {
-      setStaffErr(err);
-      return;
-    }
+    setStaffSaving(true);
     setStaffErr('');
-    setStaffName('');
-    setStaffEmail('');
-    setShowAddStaff(false);
+    try {
+      const err = await onAddSubAdmin({
+        name: staffName.trim(),
+        email: staffEmail.trim().toLowerCase(),
+        permissions: {
+          canReviewVideos: staffCanReview,
+          canModeratePosts: staffCanModerate,
+        },
+      });
+      if (err) {
+        setStaffErr(err);
+        return;
+      }
+      setStaffErr('');
+      setStaffName('');
+      setStaffEmail('');
+      setShowAddStaff(false);
+    } finally {
+      setStaffSaving(false);
+    }
   };
+
+  const filteredUsers = accounts.filter((acc) => {
+    const q = userSearch.trim().toLowerCase();
+    if (!q) return true;
+    return `${acc.name} ${acc.email} ${acc.role}`.toLowerCase().includes(q);
+  });
 
   return (
     <div className="space-y-6">
@@ -674,6 +696,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               'moderation',
               `Reviews & Reports (${pendingVideosCount + openReports.length})`,
             ],
+            ['users', `Users (${accounts.length})`],
           ] as Array<[AdminSection, string]>
         ).map(([id, label]) => (
           <button
@@ -891,7 +914,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       </span>
                       <button
                         type="button"
-                        onClick={() => onRevokeInstructor(inst.email)}
+                        onClick={() => onRevokeInstructor(inst)}
                         className="text-xs font-semibold text-red-700 hover:underline py-1"
                       >
                         Revoke permission
@@ -1001,9 +1024,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
               <button
                 type="submit"
-                className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold min-h-[40px]"
+                disabled={staffSaving}
+                className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-xs font-semibold min-h-[40px]"
               >
-                Save sub-admin
+                {staffSaving ? 'Saving…' : 'Save sub-admin'}
               </button>
             </form>
           )}
@@ -1035,7 +1059,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => onRemoveSubAdmin(staff.email)}
+                      onClick={() => onRemoveSubAdmin(staff)}
                       className="text-xs font-semibold text-red-700 hover:underline shrink-0"
                     >
                       Remove
@@ -1048,7 +1072,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         type="checkbox"
                         checked={perms.canReviewVideos}
                         onChange={(e) =>
-                          onUpdateSubAdminPermissions(staff.email, {
+                          onUpdateSubAdminPermissions(staff, {
                             ...perms,
                             canReviewVideos: e.target.checked,
                           })
@@ -1071,7 +1095,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         type="checkbox"
                         checked={perms.canModeratePosts}
                         onChange={(e) =>
-                          onUpdateSubAdminPermissions(staff.email, {
+                          onUpdateSubAdminPermissions(staff, {
                             ...perms,
                             canModeratePosts: e.target.checked,
                           })
@@ -1127,6 +1151,155 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </h2>
             {renderReportedPostsList()}
           </div>
+        </div>
+      )}
+
+      {/* Tab 5: User Management & Platform Oversight */}
+      {adminTab === 'users' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <div className="text-xs font-semibold text-slate-500">Admins</div>
+              <div className="font-display font-bold text-xl text-slate-900 mt-1 tabular-nums">
+                {admins.length}
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <div className="text-xs font-semibold text-slate-500">
+                Sub-Admins
+              </div>
+              <div className="font-display font-bold text-xl text-slate-900 mt-1 tabular-nums">
+                {subAdmins.length}
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <div className="text-xs font-semibold text-slate-500">
+                Instructors
+              </div>
+              <div className="font-display font-bold text-xl text-slate-900 mt-1 tabular-nums">
+                {approvedInstructors.length}
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <div className="text-xs font-semibold text-slate-500">
+                Learners
+              </div>
+              <div className="font-display font-bold text-xl text-slate-900 mt-1 tabular-nums">
+                {learners.length}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Registered users ({filteredUsers.length})
+            </h2>
+            <input
+              type="text"
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              placeholder="Search by name, email, or role"
+              className="w-full sm:w-72 border border-slate-300 bg-white rounded-xl px-3.5 py-2 min-h-[40px] text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+
+          {filteredUsers.length > 0 ? (
+            <div className="space-y-2.5">
+              {filteredUsers.map((acc) => {
+                const roleDisplay =
+                  acc.role === 'admin'
+                    ? 'Supreme Admin'
+                    : acc.role === 'sub_admin'
+                    ? 'Sub-Admin Staff'
+                    : acc.role === 'instructor'
+                    ? 'Verified Instructor'
+                    : 'Learner';
+
+                return (
+                  <div
+                    key={acc.id || acc.email}
+                    className="bg-white border border-slate-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-slate-900 text-white font-display font-bold text-xs flex items-center justify-center shrink-0">
+                        {getInitials(acc.name)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-display font-bold text-sm text-slate-900 truncate">
+                          {acc.name}
+                        </div>
+                        <div className="text-xs text-slate-500 truncate">
+                          {acc.email} ·{' '}
+                          <span className="font-semibold text-teal-700">
+                            {roleDisplay}
+                          </span>
+                        </div>
+                        {acc.qualifications && (
+                          <div className="text-[11px] text-slate-600 truncate mt-0.5">
+                            {acc.qualifications}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      {acc.role === 'admin' && (
+                        <span className="text-xs font-semibold text-slate-500">
+                          Protected account
+                        </span>
+                      )}
+                      {acc.role === 'learner' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStaffName(acc.name);
+                            setStaffEmail(acc.email);
+                            setStaffErr('');
+                            setShowAddStaff(true);
+                            setAdminTab('staff');
+                          }}
+                          className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold min-h-[36px] transition-colors"
+                        >
+                          Appoint sub-admin
+                        </button>
+                      )}
+                      {acc.role === 'instructor' && (
+                        <button
+                          type="button"
+                          onClick={() => onRevokeInstructor(acc)}
+                          className="px-3 py-1.5 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-red-700 text-xs font-semibold min-h-[36px] transition-colors"
+                        >
+                          Revoke instructor
+                        </button>
+                      )}
+                      {acc.role === 'sub_admin' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setAdminTab('staff')}
+                            className="px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold min-h-[36px] transition-colors"
+                          >
+                            Edit permissions
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onRemoveSubAdmin(acc)}
+                            className="px-3 py-1.5 rounded-xl border border-red-200 bg-white hover:bg-red-50 text-red-700 text-xs font-semibold min-h-[36px] transition-colors"
+                          >
+                            Remove sub-admin
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 text-sm text-slate-600">
+              No matching users found.
+            </div>
+          )}
         </div>
       )}
     </div>

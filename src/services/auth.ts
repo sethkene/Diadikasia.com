@@ -54,22 +54,22 @@ export function isEmailVerified(
   return Boolean(user?.email_confirmed_at);
 }
 
-function buildFallbackUserProfile(
-  authUser: Pick<User, 'id' | 'email' | 'user_metadata'>,
-  fallbackEmail = '',
-  fallbackName = '',
-): UserProfile {
-  const email = authUser.email || fallbackEmail;
-  const metaName =
-    typeof authUser.user_metadata?.name === 'string'
-      ? authUser.user_metadata.name
-      : '';
-  return {
-    id: authUser.id,
-    email,
-    name: metaName || fallbackName || (email ? email.split('@')[0] : 'Learner'),
-    role: 'learner',
-  };
+const VALID_USER_ROLES = new Set<UserRole>([
+  'learner',
+  'instructor',
+  'sub_admin',
+  'admin',
+]);
+
+export function normalizeUserRole(raw: unknown): UserRole | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim() as UserRole;
+  return VALID_USER_ROLES.has(trimmed) ? trimmed : null;
+}
+
+export interface AuthoritativeProfileResult {
+  profile: UserProfile | null;
+  error?: string;
 }
 
 function formatCallbackError(
@@ -265,12 +265,23 @@ export function processAuthCallbackFromUrl(): Promise<AuthCallbackResult> {
       };
     }
 
-    const profile = await fetchMyProfile(establishedUser.id);
+    const { profile, error: profileError } = await fetchAuthoritativeMyProfile(
+      establishedUser.id,
+    );
+    if (!profile) {
+      return {
+        handled: true,
+        error:
+          profileError ||
+          'Unable to load your profile from the database. Please try signing in.',
+      };
+    }
+
     return {
       handled: true,
       verified: true,
       type: callbackType || 'signup',
-      user: profile || buildFallbackUserProfile(establishedUser),
+      user: profile,
     };
   })().finally(() => {
     inFlightCallbackPromise = null;
@@ -280,16 +291,17 @@ export function processAuthCallbackFromUrl(): Promise<AuthCallbackResult> {
 }
 
 export function mapProfileRowToUser(row: ProfileRow): UserProfile {
+  const role = normalizeUserRole(row.role) ?? 'learner';
   return {
     id: row.id,
     email: row.email,
     name: row.name,
-    role: row.role,
+    role,
     qualifications: row.qualifications || undefined,
     youtubeHandle: row.youtube_handle || undefined,
     approvedAt: row.approved_at || undefined,
     permissions:
-      row.role === 'sub_admin'
+      role === 'sub_admin'
         ? {
             canReviewVideos: Boolean(row.can_review_videos),
             canModeratePosts: Boolean(row.can_moderate_posts),
@@ -299,8 +311,12 @@ export function mapProfileRowToUser(row: ProfileRow): UserProfile {
   };
 }
 
-export async function fetchMyProfile(userId: string): Promise<UserProfile | null> {
-  if (!isSupabaseConfigured || !supabase) return null;
+export async function fetchAuthoritativeMyProfile(
+  userId: string,
+): Promise<AuthoritativeProfileResult> {
+  if (!isSupabaseConfigured || !supabase) {
+    return { profile: null, error: supabaseConfigError };
+  }
 
   const { data, error } = await supabase
     .from('profiles')
@@ -310,17 +326,76 @@ export async function fetchMyProfile(userId: string): Promise<UserProfile | null
     .eq('id', userId)
     .maybeSingle();
 
-  if (!error && data) {
-    return mapProfileRowToUser(data as ProfileRow);
+  if (error) {
+    return { profile: null, error: error.message };
   }
 
-  // Fallback for users created before trigger deployment
+  if (data) {
+    const role = normalizeUserRole((data as ProfileRow).role);
+    if (!role) {
+      return {
+        profile: null,
+        error: 'Account profile contains an unrecognized role.',
+      };
+    }
+    return { profile: mapProfileRowToUser(data as ProfileRow) };
+  }
+
+  // Provision missing row via security-definer RPC only when no row exists
   const { data: ensured, error: rpcErr } = await supabase.rpc('ensure_my_profile');
-  if (!rpcErr && ensured) {
-    return mapProfileRowToUser(ensured as ProfileRow);
+  if (rpcErr || !ensured) {
+    return {
+      profile: null,
+      error: rpcErr?.message || 'Account profile could not be retrieved.',
+    };
   }
 
-  return null;
+  const ensuredRole = normalizeUserRole((ensured as ProfileRow).role);
+  if (!ensuredRole) {
+    return {
+      profile: null,
+      error: 'Account profile contains an unrecognized role.',
+    };
+  }
+
+  return { profile: mapProfileRowToUser(ensured as ProfileRow) };
+}
+
+export async function fetchMyProfile(userId: string): Promise<UserProfile | null> {
+  const { profile } = await fetchAuthoritativeMyProfile(userId);
+  return profile;
+}
+
+export function subscribeToMyProfileChanges(
+  userId: string,
+  onChange: (profile: UserProfile) => void,
+): () => void {
+  if (!isSupabaseConfigured || !supabase || !userId) {
+    return () => {};
+  }
+
+  const client = supabase;
+  const channel = client
+    .channel(`profile-role-sync-${userId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${userId}`,
+      },
+      () => {
+        void fetchAuthoritativeMyProfile(userId).then(({ profile }) => {
+          if (profile) onChange(profile);
+        });
+      },
+    )
+    .subscribe();
+
+  return () => {
+    void client.removeChannel(channel);
+  };
 }
 
 export async function fetchDirectoryProfiles(
@@ -344,15 +419,21 @@ export async function fetchDirectoryProfiles(
   const { data, error } = await supabase.rpc('get_public_directory');
   if (error || !data) return [];
 
-  return (data as PublicDirectoryRow[]).map((row) => ({
-    id: row.id,
-    email: '',
-    name: row.name,
-    role: row.role,
-    qualifications: row.qualifications || undefined,
-    youtubeHandle: row.youtube_handle || undefined,
-    approvedAt: row.approved_at || undefined,
-  }));
+  return (data as PublicDirectoryRow[]).flatMap((row) => {
+    const role = normalizeUserRole(row.role);
+    if (!role) return [];
+    return [
+      {
+        id: row.id,
+        email: '',
+        name: row.name,
+        role,
+        qualifications: row.qualifications || undefined,
+        youtubeHandle: row.youtube_handle || undefined,
+        approvedAt: row.approved_at || undefined,
+      },
+    ];
+  });
 }
 
 export async function signInWithSupabase(
@@ -396,10 +477,15 @@ export async function signInWithSupabase(
     };
   }
 
-  const profile = await fetchMyProfile(data.user.id);
+  const { profile, error: profileError } = await fetchAuthoritativeMyProfile(
+    data.user.id,
+  );
   if (!profile) {
+    await supabase.auth.signOut();
     return {
-      user: buildFallbackUserProfile(data.user, email),
+      error:
+        profileError ||
+        'Unable to load your profile from the database. Please try again.',
     };
   }
 
@@ -467,10 +553,17 @@ export async function signUpWithSupabase(
     return { needsEmailConfirmation: true };
   }
 
-  const profile = await fetchMyProfile(data.user.id);
-  return {
-    user: profile || buildFallbackUserProfile(data.user, email, name),
-  };
+  const { profile, error: profileError } = await fetchAuthoritativeMyProfile(
+    data.user.id,
+  );
+  if (!profile) {
+    return {
+      error:
+        profileError ||
+        'Account created, but unable to load your profile. Please sign in.',
+    };
+  }
+  return { user: profile };
 }
 
 export async function verifySignupOtp(
@@ -499,11 +592,17 @@ export async function verifySignupOtp(
           'Email confirmation is still pending. Please open the confirmation link in your email.',
       };
     }
-    const profile = await fetchMyProfile(data.user.id);
-    if (profile) return { user: profile };
-    return {
-      user: buildFallbackUserProfile(data.user, email),
-    };
+    const { profile, error: profileError } = await fetchAuthoritativeMyProfile(
+      data.user.id,
+    );
+    if (!profile) {
+      return {
+        error:
+          profileError ||
+          'Email verified, but unable to load your profile. Please sign in.',
+      };
+    }
+    return { user: profile };
   }
 
   return { error: 'Verification succeeded, please sign in.' };
@@ -580,11 +679,17 @@ export async function verifyRecoveryOtpAndSetPassword(
         error: 'Please confirm your email address before signing in.',
       };
     }
-    const profile = await fetchMyProfile(data.user.id);
-    if (profile) return { user: profile };
-    return {
-      user: buildFallbackUserProfile(data.user, email),
-    };
+    const { profile, error: profileError } = await fetchAuthoritativeMyProfile(
+      data.user.id,
+    );
+    if (!profile) {
+      return {
+        error:
+          profileError ||
+          'Password updated, but unable to load your profile. Please sign in.',
+      };
+    }
+    return { user: profile };
   }
 
   return {};
@@ -621,10 +726,17 @@ export async function updatePasswordForRecoverySession(
     };
   }
 
-  const profile = await fetchMyProfile(activeUser.id);
-  return {
-    user: profile || buildFallbackUserProfile(activeUser),
-  };
+  const { profile, error: profileError } = await fetchAuthoritativeMyProfile(
+    activeUser.id,
+  );
+  if (!profile) {
+    return {
+      error:
+        profileError ||
+        'Password updated, but unable to load your profile. Please sign in.',
+    };
+  }
+  return { user: profile };
 }
 
 export async function updateMySharePopupsPreference(

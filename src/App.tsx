@@ -79,13 +79,30 @@ import {
 import { rankReels } from './utils/recommender';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import {
+  fetchAuthoritativeMyProfile,
   fetchDirectoryProfiles,
-  fetchMyProfile,
   isEmailVerified,
   processAuthCallbackFromUrl,
   signOutSupabase,
+  subscribeToMyProfileChanges,
   updateMySharePopupsPreference,
 } from './services/auth';
+import {
+  appointOrUpdateSubAdminRpc,
+  fetchInstructorApplications,
+  fetchPostReports,
+  fetchPublishedProcedures,
+  fetchVideoSubmissions,
+  fetchVisibleReels,
+  moderateReportedPostRpc,
+  removeSubAdminRpc,
+  reviewInstructorApplicationRpc,
+  reviewVideoSubmissionRpc,
+  revokeInstructorRpc,
+  submitInstructorApplicationToSupabase,
+  submitPostReportToSupabase,
+  submitVideoForReviewToSupabase,
+} from './services/rbac';
 
 const NAV_ITEMS: Array<{
   id: MainTab;
@@ -134,13 +151,15 @@ function readStored<T>(key: string, fallback: T): T {
 
 export default function App() {
   const [accounts, setAccounts] = useState<UserProfile[]>(() =>
-    readStored(STORAGE_KEYS.accounts, INITIAL_ACCOUNTS),
+    isSupabaseConfigured ? [] : readStored(STORAGE_KEYS.accounts, INITIAL_ACCOUNTS),
   );
   const [applications, setApplications] = useState<InstructorApplication[]>(() =>
-    readStored(STORAGE_KEYS.applications, INITIAL_APPLICATIONS),
+    isSupabaseConfigured
+      ? []
+      : readStored(STORAGE_KEYS.applications, INITIAL_APPLICATIONS),
   );
   const [reports, setReports] = useState<ReportedPost[]>(() =>
-    readStored(STORAGE_KEYS.reports, INITIAL_REPORTS),
+    isSupabaseConfigured ? [] : readStored(STORAGE_KEYS.reports, INITIAL_REPORTS),
   );
 
   const [screen, setScreen] = useState<ScreenMode>('splash');
@@ -216,7 +235,9 @@ export default function App() {
   );
 
   const [submissionsQueue, setSubmissionsQueue] = useState<SubmissionItem[]>(() =>
-    readStored(STORAGE_KEYS.submissions, INITIAL_SUBMISSIONS_QUEUE),
+    isSupabaseConfigured
+      ? []
+      : readStored(STORAGE_KEYS.submissions, INITIAL_SUBMISSIONS_QUEUE),
   );
   const [contributeOpen, setContributeOpen] = useState(false);
   const [contributeSubmitted, setContributeSubmitted] = useState(false);
@@ -239,21 +260,27 @@ export default function App() {
   const appliedAuthUserIdRef = useRef<string | null>(null);
   const inFlightAuthUserIdRef = useRef<string | null>(null);
   const recoveryModeRef = useRef<boolean>(false);
+  const contributeFileRef = useRef<File | null>(null);
+  const lastProfileRefreshRef = useRef<number>(0);
+  const userRef = useRef<UserProfile>(user);
+  userRef.current = user;
 
-  // Persist RBAC, procedures, study progress, and community state
+  // Persist local procedures, study progress, and community state
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEYS.accounts, JSON.stringify(accounts));
-      localStorage.setItem(
-        STORAGE_KEYS.applications,
-        JSON.stringify(applications),
-      );
-      localStorage.setItem(STORAGE_KEYS.reports, JSON.stringify(reports));
+      if (!isSupabaseConfigured) {
+        localStorage.setItem(STORAGE_KEYS.accounts, JSON.stringify(accounts));
+        localStorage.setItem(
+          STORAGE_KEYS.applications,
+          JSON.stringify(applications),
+        );
+        localStorage.setItem(STORAGE_KEYS.reports, JSON.stringify(reports));
+        localStorage.setItem(
+          STORAGE_KEYS.submissions,
+          JSON.stringify(submissionsQueue),
+        );
+      }
       localStorage.setItem(STORAGE_KEYS.posts, JSON.stringify(posts));
-      localStorage.setItem(
-        STORAGE_KEYS.submissions,
-        JSON.stringify(submissionsQueue),
-      );
       localStorage.setItem(STORAGE_KEYS.signals, JSON.stringify(reelSignals));
       localStorage.setItem(STORAGE_KEYS.milestones, JSON.stringify(milestones));
       localStorage.setItem(
@@ -317,24 +344,6 @@ export default function App() {
     notifications,
   ]);
 
-  // Keep active user synced with accounts updates (e.g. role promotions/revocations)
-  useEffect(() => {
-    if (!user.email) return;
-    const synced = accounts.find((a) =>
-      user.id
-        ? a.id === user.id
-        : a.email.toLowerCase() === user.email.toLowerCase(),
-    );
-    if (synced && JSON.stringify(synced) !== JSON.stringify(user)) {
-      setUser(synced);
-      try {
-        localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(synced));
-      } catch {
-        // ignore
-      }
-    }
-  }, [accounts, user]);
-
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
     setToastVisible(true);
@@ -343,6 +352,104 @@ export default function App() {
       setToastVisible(false);
     }, 2600);
   }, []);
+
+  const syncRoleScopedData = useCallback(async (activeUser: UserProfile) => {
+    if (!isSupabaseConfigured || !activeUser.id) return;
+
+    const isAdminUser = activeUser.role === 'admin';
+    const canSeeSubmissions =
+      activeUser.role === 'instructor' ||
+      isAdminUser ||
+      (activeUser.role === 'sub_admin' &&
+        Boolean(activeUser.permissions?.canReviewVideos));
+    const canSeeModerationReports =
+      isAdminUser ||
+      (activeUser.role === 'sub_admin' &&
+        Boolean(activeUser.permissions?.canModeratePosts));
+
+    const [
+      directory,
+      appsRes,
+      subsRes,
+      reportsRes,
+      procsRes,
+      reelsRes,
+    ] = await Promise.all([
+      fetchDirectoryProfiles(isAdminUser),
+      fetchInstructorApplications(),
+      canSeeSubmissions
+        ? fetchVideoSubmissions()
+        : Promise.resolve({
+            submissions: [] as SubmissionItem[],
+            error: undefined as string | undefined,
+          }),
+      canSeeModerationReports
+        ? fetchPostReports()
+        : Promise.resolve({
+            reports: [] as ReportedPost[],
+            error: undefined as string | undefined,
+          }),
+      fetchPublishedProcedures(),
+      fetchVisibleReels(),
+    ]);
+
+    setAccounts(directory);
+    if (!appsRes.error) {
+      setApplications(appsRes.applications);
+    }
+    if (!subsRes.error) {
+      setSubmissionsQueue((prev) => {
+        const draftById = new Map(prev.map((item) => [item.id, item]));
+        return subsRes.submissions.map((remote) => {
+          const localDraft = draftById.get(remote.id);
+          if (localDraft && remote.status === 'pending') {
+            return {
+              ...remote,
+              checks: localDraft.checks,
+              note: localDraft.note || remote.note,
+            };
+          }
+          return remote;
+        });
+      });
+    }
+    if (!reportsRes.error) {
+      setReports(reportsRes.reports);
+    }
+    if (!procsRes.error && procsRes.procedures.length > 0) {
+      setVideos(procsRes.procedures);
+    }
+    if (!reelsRes.error && reelsRes.reels.length > 0) {
+      setPosts(reelsRes.reels);
+    }
+  }, []);
+
+  const refreshAuthoritativeProfile = useCallback(
+    async (force = false) => {
+      if (!isSupabaseConfigured) return;
+      const currentUser = userRef.current;
+      if (!currentUser.id) return;
+
+      const now = Date.now();
+      if (!force && now - lastProfileRefreshRef.current < 4000) {
+        return;
+      }
+      lastProfileRefreshRef.current = now;
+
+      const { profile } = await fetchAuthoritativeMyProfile(currentUser.id);
+      if (!profile) return;
+
+      const changed = JSON.stringify(profile) !== JSON.stringify(userRef.current);
+      if (changed) {
+        setUser(profile);
+        if (typeof profile.sharePracticePopups === 'boolean') {
+          setShareEnabled(profile.sharePracticePopups);
+        }
+        await syncRoleScopedData(profile);
+      }
+    },
+    [syncRoleScopedData],
+  );
 
   const backStateRef = useRef({
     screen,
@@ -425,46 +532,41 @@ export default function App() {
     let active = true;
     let unsubscribeAuth: (() => void) | null = null;
 
-    const mergeDirectory = (
-      prev: UserProfile[],
-      directory: UserProfile[],
-    ): UserProfile[] => {
-      const keyFor = (u: UserProfile) =>
-        u.email
-          ? `e:${u.email.toLowerCase()}`
-          : u.id
-          ? `id:${u.id}`
-          : `n:${u.name.toLowerCase()}`;
-      const map = new Map<string, UserProfile>();
-      for (const item of prev) map.set(keyFor(item), item);
-      for (const remote of directory) map.set(keyFor(remote), remote);
-      return Array.from(map.values());
+    const clearSessionState = (notice?: AuthNotice, forceAuthScreen = false) => {
+      appliedAuthUserIdRef.current = null;
+      inFlightAuthUserIdRef.current = null;
+      try {
+        localStorage.removeItem(STORAGE_KEYS.user);
+      } catch {
+        // ignore
+      }
+      setUser({ email: '', name: '', role: 'learner' });
+      setAccounts([]);
+      setApplications([]);
+      setSubmissionsQueue([]);
+      setReports([]);
+      if (notice) {
+        setAuthNotice(notice);
+      }
+      setScreen((prev) =>
+        forceAuthScreen ? 'auth' : prev === 'app' ? 'auth' : prev,
+      );
     };
 
     const commitAuthenticatedProfile = async (resolvedProfile: UserProfile) => {
       if (resolvedProfile.id) {
         appliedAuthUserIdRef.current = resolvedProfile.id;
       }
-      const directory = await fetchDirectoryProfiles(
-        resolvedProfile.role === 'admin',
-      );
+      lastProfileRefreshRef.current = Date.now();
       if (!active) return;
-
-      if (directory.length > 0) {
-        setAccounts((prev) => mergeDirectory(prev, directory));
-      }
 
       setUser(resolvedProfile);
       if (typeof resolvedProfile.sharePracticePopups === 'boolean') {
         setShareEnabled(resolvedProfile.sharePracticePopups);
       }
-      try {
-        localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(resolvedProfile));
-      } catch {
-        // ignore
-      }
       setAuthNotice(undefined);
       setScreen('app');
+      await syncRoleScopedData(resolvedProfile);
     };
 
     const applyAuthenticatedProfile = async (sessionUser: {
@@ -488,42 +590,36 @@ export default function App() {
 
       inFlightAuthUserIdRef.current = sessionUser.id;
       try {
-        const profile = await fetchMyProfile(sessionUser.id);
+        const { profile, error: profileError } =
+          await fetchAuthoritativeMyProfile(sessionUser.id);
         if (!active) return;
 
-        const resolvedProfile: UserProfile = profile || {
-          id: sessionUser.id,
-          email: sessionUser.email || '',
-          name:
-            (typeof sessionUser.user_metadata?.name === 'string' &&
-              sessionUser.user_metadata.name) ||
-            (sessionUser.email ? sessionUser.email.split('@')[0] : 'Learner'),
-          role: 'learner',
-        };
+        if (!profile) {
+          // Do not downgrade an already-authenticated user on transient network failure
+          if (
+            appliedAuthUserIdRef.current === sessionUser.id &&
+            userRef.current.id === sessionUser.id
+          ) {
+            return;
+          }
+          void signOutSupabase();
+          clearSessionState(
+            {
+              error:
+                profileError ||
+                'Unable to load your profile from the database. Please sign in again.',
+            },
+            true,
+          );
+          return;
+        }
 
-        await commitAuthenticatedProfile(resolvedProfile);
+        await commitAuthenticatedProfile(profile);
       } finally {
         if (inFlightAuthUserIdRef.current === sessionUser.id) {
           inFlightAuthUserIdRef.current = null;
         }
       }
-    };
-
-    const clearSessionState = (notice?: AuthNotice, forceAuthScreen = false) => {
-      appliedAuthUserIdRef.current = null;
-      inFlightAuthUserIdRef.current = null;
-      try {
-        localStorage.removeItem(STORAGE_KEYS.user);
-      } catch {
-        // ignore
-      }
-      setUser({ email: '', name: '', role: 'learner' });
-      if (notice) {
-        setAuthNotice(notice);
-      }
-      setScreen((prev) =>
-        forceAuthScreen ? 'auth' : prev === 'app' ? 'auth' : prev,
-      );
     };
 
     const initAuth = async () => {
@@ -598,10 +694,14 @@ export default function App() {
               return;
             }
 
+            if (inFlightAuthUserIdRef.current === session.user.id) {
+              setScreen('app');
+              return;
+            }
+
             if (
-              event !== 'USER_UPDATED' &&
-              (appliedAuthUserIdRef.current === session.user.id ||
-                inFlightAuthUserIdRef.current === session.user.id)
+              event === 'INITIAL_SESSION' &&
+              appliedAuthUserIdRef.current === session.user.id
             ) {
               setScreen('app');
               return;
@@ -630,7 +730,55 @@ export default function App() {
         unsubscribeAuth();
       }
     };
-  }, [showToast]);
+  }, [showToast, syncRoleScopedData]);
+
+  // Refresh authoritative role & profile on Realtime update, focus, or opening Profile/Admin
+  useEffect(() => {
+    if (screen !== 'app' || !isSupabaseConfigured || !user.id) return;
+
+    const unsubscribeRealtime = subscribeToMyProfileChanges(
+      user.id,
+      (updatedProfile) => {
+        const changed =
+          JSON.stringify(updatedProfile) !== JSON.stringify(userRef.current);
+        if (!changed) return;
+        setUser(updatedProfile);
+        if (typeof updatedProfile.sharePracticePopups === 'boolean') {
+          setShareEnabled(updatedProfile.sharePracticePopups);
+        }
+        void syncRoleScopedData(updatedProfile);
+      },
+    );
+
+    const handleWindowFocus = () => {
+      void refreshAuthoritativeProfile(false);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshAuthoritativeProfile(false);
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      unsubscribeRealtime();
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [
+    screen,
+    user.id,
+    refreshAuthoritativeProfile,
+    syncRoleScopedData,
+  ]);
+
+  useEffect(() => {
+    if (screen === 'app' && activeTab === 'me' && isSupabaseConfigured && user.id) {
+      void refreshAuthoritativeProfile(true);
+    }
+  }, [screen, activeTab, user.id, refreshAuthoritativeProfile]);
 
   useEffect(() => {
     if (screen !== 'splash') return;
@@ -646,8 +794,9 @@ export default function App() {
     if (profile.id) {
       appliedAuthUserIdRef.current = profile.id;
     }
+    lastProfileRefreshRef.current = Date.now();
 
-    if (isNewAccount || isSupabaseConfigured) {
+    if (!isSupabaseConfigured && isNewAccount) {
       setAccounts((prev) => {
         const idx = prev.findIndex(
           (a) => a.email && a.email.toLowerCase() === profile.email.toLowerCase(),
@@ -664,29 +813,10 @@ export default function App() {
     if (typeof profile.sharePracticePopups === 'boolean') {
       setShareEnabled(profile.sharePracticePopups);
     }
-    try {
-      localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(profile));
-    } catch {
-      // ignore
-    }
     setScreen('app');
 
     if (isSupabaseConfigured) {
-      void fetchDirectoryProfiles(profile.role === 'admin').then((directory) => {
-        if (directory.length === 0) return;
-        setAccounts((prev) => {
-          const keyFor = (u: UserProfile) =>
-            u.email
-              ? `e:${u.email.toLowerCase()}`
-              : u.id
-              ? `id:${u.id}`
-              : `n:${u.name.toLowerCase()}`;
-          const map = new Map<string, UserProfile>();
-          for (const item of prev) map.set(keyFor(item), item);
-          for (const remote of directory) map.set(keyFor(remote), remote);
-          return Array.from(map.values());
-        });
-      });
+      void syncRoleScopedData(profile);
     }
   };
 
@@ -702,6 +832,12 @@ export default function App() {
       // ignore
     }
     setUser({ email: '', name: '', role: 'learner' });
+    if (isSupabaseConfigured) {
+      setAccounts([]);
+      setApplications([]);
+      setSubmissionsQueue([]);
+      setReports([]);
+    }
     setScreen('auth');
     setAuthMode('in');
     setActiveTab('home');
@@ -714,10 +850,14 @@ export default function App() {
     setSearchQuery('');
   };
 
-  const canContribute = user.role === 'instructor' || user.role === 'admin';
+  const isAdmin = user.role === 'admin';
+  const canContribute = user.role === 'instructor' || isAdmin;
   const canReviewVideos =
-    user.role === 'admin' ||
+    isAdmin ||
     (user.role === 'sub_admin' && Boolean(user.permissions?.canReviewVideos));
+  const canModeratePosts =
+    isAdmin ||
+    (user.role === 'sub_admin' && Boolean(user.permissions?.canModeratePosts));
 
   const filteredVideos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1034,6 +1174,7 @@ export default function App() {
       setApplyModalOpen(true);
       return;
     }
+    contributeFileRef.current = null;
     const defaults = createDefaultContributeForm();
     defaults.by = user.qualifications
       ? `${user.name}, ${user.qualifications.split('·')[0].trim()}`
@@ -1044,6 +1185,7 @@ export default function App() {
   };
 
   const handlePickContributeFile = (file: File) => {
+    contributeFileRef.current = file;
     let url = '';
     try {
       url = URL.createObjectURL(file);
@@ -1061,7 +1203,12 @@ export default function App() {
     }, 1500);
   };
 
-  const handleSubmitContribute = () => {
+  const handleSubmitContribute = async () => {
+    if (!canContribute) {
+      showToast('Verified instructor or admin access is required to submit videos.');
+      return;
+    }
+
     const f = contributeForm;
     const errors: string[] = [];
     if (!f.name) errors.push('Add a video file.');
@@ -1078,6 +1225,26 @@ export default function App() {
 
     if (errors.length > 0) {
       setContributeForm((prev) => ({ ...prev, errors }));
+      return;
+    }
+
+    if (isSupabaseConfigured && user.id) {
+      const { submission, error } = await submitVideoForReviewToSupabase({
+        userId: user.id,
+        email: user.email,
+        form: f,
+        file: contributeFileRef.current,
+      });
+      if (error || !submission) {
+        setContributeForm((prev) => ({
+          ...prev,
+          errors: [error || 'Unable to submit video for review.'],
+        }));
+        return;
+      }
+      contributeFileRef.current = null;
+      setSubmissionsQueue((prev) => [submission, ...prev]);
+      setContributeSubmitted(true);
       return;
     }
 
@@ -1100,15 +1267,19 @@ export default function App() {
       status: 'pending',
     };
 
+    contributeFileRef.current = null;
     setSubmissionsQueue((prev) => [...prev, newSubmission]);
     setContributeSubmitted(true);
   };
 
-  const handleReviewDecision = (
+  const handleReviewDecision = async (
     submissionId: number,
     decision: Exclude<SubmissionStatus, 'pending'>,
   ) => {
-    if (!canReviewVideos) return;
+    if (!canReviewVideos) {
+      showToast('You do not have video review permissions.');
+      return;
+    }
     const item = submissionsQueue.find((s) => s.id === submissionId);
     if (!item) return;
 
@@ -1134,6 +1305,34 @@ export default function App() {
             : s,
         ),
       );
+      return;
+    }
+
+    if (isSupabaseConfigured) {
+      const { error } = await reviewVideoSubmissionRpc(
+        submissionId,
+        decision,
+        item.checks,
+        item.note,
+      );
+      if (error) {
+        setSubmissionsQueue((prev) =>
+          prev.map((s) =>
+            s.id === submissionId ? { ...s, err: error } : s,
+          ),
+        );
+        showToast(error);
+        return;
+      }
+
+      await syncRoleScopedData(user);
+      if (decision === 'ok') {
+        showToast('Approved. It now appears in Home.');
+      } else if (decision === 'chg') {
+        showToast('Sent back with a note.');
+      } else {
+        showToast('Rejected. The contributor is notified.');
+      }
       return;
     }
 
@@ -1172,12 +1371,31 @@ export default function App() {
   };
 
   // Instructor Application & Admin RBAC handlers
-  const handleSubmitInstructorApplication = (data: {
+  const handleSubmitInstructorApplication = async (data: {
     fullName: string;
     qualifications: string;
     youtubeHandle: string;
     note: string;
   }) => {
+    if (isSupabaseConfigured && user.id) {
+      const { application, error } = await submitInstructorApplicationToSupabase(
+        user.id,
+        user.email,
+        data,
+      );
+      if (error || !application) {
+        showToast(error || 'Unable to submit instructor application.');
+        return;
+      }
+      setApplications((prev) => [
+        application,
+        ...prev.filter((a) => a.id !== application.id),
+      ]);
+      setApplyModalOpen(false);
+      showToast('Instructor application submitted for admin verification.');
+      return;
+    }
+
     const newApp: InstructorApplication = {
       id: nextIdRef.current++,
       email: user.email,
@@ -1197,10 +1415,24 @@ export default function App() {
     showToast('Instructor application submitted for admin verification.');
   };
 
-  const handleApproveApplication = (appId: number) => {
-    if (user.role !== 'admin') return;
+  const handleApproveApplication = async (appId: number) => {
+    if (!isAdmin) {
+      showToast('Only Supreme Admin can approve instructor applications.');
+      return;
+    }
     const app = applications.find((a) => a.id === appId);
     if (!app) return;
+
+    if (isSupabaseConfigured) {
+      const { error } = await reviewInstructorApplicationRpc(appId, true);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      await syncRoleScopedData(user);
+      showToast(`${app.fullName} approved as a verified clinical instructor.`);
+      return;
+    }
 
     setApplications((prev) =>
       prev.map((a) => (a.id === appId ? { ...a, status: 'approved' } : a)),
@@ -1240,8 +1472,23 @@ export default function App() {
     showToast(`${app.fullName} approved as a verified clinical instructor.`);
   };
 
-  const handleDeclineApplication = (appId: number, note: string) => {
-    if (user.role !== 'admin') return;
+  const handleDeclineApplication = async (appId: number, note: string) => {
+    if (!isAdmin) {
+      showToast('Only Supreme Admin can decline instructor applications.');
+      return;
+    }
+
+    if (isSupabaseConfigured) {
+      const { error } = await reviewInstructorApplicationRpc(appId, false, note);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      await syncRoleScopedData(user);
+      showToast('Application declined.');
+      return;
+    }
+
     setApplications((prev) =>
       prev.map((a) =>
         a.id === appId
@@ -1252,11 +1499,30 @@ export default function App() {
     showToast('Application declined.');
   };
 
-  const handleRevokeInstructor = (email: string) => {
-    if (user.role !== 'admin') return;
+  const handleRevokeInstructor = async (account: UserProfile) => {
+    if (!isAdmin) {
+      showToast('Only Supreme Admin can revoke instructor permissions.');
+      return;
+    }
+
+    if (isSupabaseConfigured) {
+      if (!account.id) {
+        showToast('Missing user ID for instructor revocation.');
+        return;
+      }
+      const { error } = await revokeInstructorRpc(account.id);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      await syncRoleScopedData(user);
+      showToast('Instructor upload permission revoked.');
+      return;
+    }
+
     setAccounts((prev) =>
       prev.map((acc) =>
-        acc.email.toLowerCase() === email.toLowerCase()
+        acc.email.toLowerCase() === account.email.toLowerCase()
           ? { ...acc, role: 'learner' }
           : acc,
       ),
@@ -1264,17 +1530,32 @@ export default function App() {
     showToast('Instructor upload permission revoked.');
   };
 
-  const handleAddSubAdmin = (data: {
+  const handleAddSubAdmin = async (data: {
     name: string;
     email: string;
     permissions: StaffPermissions;
-  }): string | null => {
-    if (user.role !== 'admin') return 'Unauthorized.';
+  }): Promise<string | null> => {
+    if (!isAdmin) return 'Unauthorized.';
     const existing = accounts.find(
       (a) => a.email.toLowerCase() === data.email.toLowerCase(),
     );
     if (existing?.role === 'admin') {
       return 'Cannot modify Supreme Admin account.';
+    }
+
+    if (isSupabaseConfigured) {
+      const { error } = await appointOrUpdateSubAdminRpc({
+        email: data.email,
+        name: data.name,
+        canReview: data.permissions.canReviewVideos,
+        canModerate: data.permissions.canModeratePosts,
+      });
+      if (error) {
+        return error;
+      }
+      await syncRoleScopedData(user);
+      showToast(`${data.name} added as sub-admin staff.`);
+      return null;
     }
 
     if (existing) {
@@ -1305,14 +1586,34 @@ export default function App() {
     return null;
   };
 
-  const handleUpdateSubAdminPermissions = (
-    email: string,
+  const handleUpdateSubAdminPermissions = async (
+    account: UserProfile,
     permissions: StaffPermissions,
   ) => {
-    if (user.role !== 'admin') return;
+    if (!isAdmin) {
+      showToast('Only Supreme Admin can update staff permissions.');
+      return;
+    }
+
+    if (isSupabaseConfigured) {
+      const { error } = await appointOrUpdateSubAdminRpc({
+        email: account.email,
+        name: account.name,
+        canReview: permissions.canReviewVideos,
+        canModerate: permissions.canModeratePosts,
+      });
+      if (error) {
+        showToast(error);
+        return;
+      }
+      await syncRoleScopedData(user);
+      showToast('Staff access updated.');
+      return;
+    }
+
     setAccounts((prev) =>
       prev.map((a) =>
-        a.email.toLowerCase() === email.toLowerCase()
+        a.email.toLowerCase() === account.email.toLowerCase()
           ? { ...a, permissions }
           : a,
       ),
@@ -1320,11 +1621,30 @@ export default function App() {
     showToast('Staff access updated.');
   };
 
-  const handleRemoveSubAdmin = (email: string) => {
-    if (user.role !== 'admin') return;
+  const handleRemoveSubAdmin = async (account: UserProfile) => {
+    if (!isAdmin) {
+      showToast('Only Supreme Admin can remove sub-admin staff.');
+      return;
+    }
+
+    if (isSupabaseConfigured) {
+      if (!account.id) {
+        showToast('Missing user ID for sub-admin removal.');
+        return;
+      }
+      const { error } = await removeSubAdminRpc(account.id);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      await syncRoleScopedData(user);
+      showToast('Sub-admin access removed.');
+      return;
+    }
+
     setAccounts((prev) =>
       prev.map((a) =>
-        a.email.toLowerCase() === email.toLowerCase()
+        a.email.toLowerCase() === account.email.toLowerCase()
           ? { ...a, role: 'learner', permissions: undefined }
           : a,
       ),
@@ -1332,7 +1652,26 @@ export default function App() {
     showToast('Sub-admin access removed.');
   };
 
-  const handleSubmitReport = (postId: number, reason: string) => {
+  const handleSubmitReport = async (postId: number, reason: string) => {
+    if (isSupabaseConfigured && user.id) {
+      const { report, error } = await submitPostReportToSupabase(
+        user.id,
+        user.name || 'Learner',
+        postId,
+        reason,
+      );
+      if (error || !report) {
+        showToast(error || 'Unable to submit post report.');
+        return;
+      }
+      setReports((prev) => [report, ...prev]);
+      setSheet(null);
+      showToast(
+        'Thanks. An admin or moderation staff member will review this post.',
+      );
+      return;
+    }
+
     const newReport: ReportedPost = {
       id: nextIdRef.current++,
       postId,
@@ -1346,12 +1685,30 @@ export default function App() {
     showToast('Thanks. An admin or moderation staff member will review this post.');
   };
 
-  const handleModerateReport = (
+  const handleModerateReport = async (
     reportId: number,
     action: 'removed' | 'dismissed',
   ) => {
+    if (!canModeratePosts) {
+      showToast('You do not have post moderation permissions.');
+      return;
+    }
+
     const target = reports.find((r) => r.id === reportId);
     if (!target) return;
+
+    if (isSupabaseConfigured) {
+      const { error } = await moderateReportedPostRpc(reportId, action);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      await syncRoleScopedData(user);
+      showToast(
+        action === 'removed' ? 'Post taken down from Reels.' : 'Report dismissed.',
+      );
+      return;
+    }
 
     setReports((prev) =>
       prev.map((r) => (r.id === reportId ? { ...r, status: action } : r)),
@@ -1890,6 +2247,7 @@ export default function App() {
           >
             {NAV_ITEMS.map(({ id, label }) => {
               const active = activeTab === id;
+              const displayLabel = id === 'me' && isAdmin ? 'Admin' : label;
               return (
                 <button
                   key={id}
@@ -1906,7 +2264,7 @@ export default function App() {
                       : 'text-slate-300 border-transparent hover:text-white'
                   }`}
                 >
-                  {label}
+                  {displayLabel}
                 </button>
               );
             })}
@@ -2104,6 +2462,7 @@ export default function App() {
       >
         {NAV_ITEMS.map(({ id, label, Icon }) => {
           const active = activeTab === id;
+          const displayLabel = id === 'me' && isAdmin ? 'Admin' : label;
           return (
             <button
               key={id}
@@ -2119,7 +2478,7 @@ export default function App() {
               }`}
             >
               <Icon className="w-5 h-5" />
-              <span>{label}</span>
+              <span>{displayLabel}</span>
             </button>
           );
         })}
