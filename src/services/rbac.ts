@@ -473,6 +473,20 @@ export async function submitPostReportToSupabase(
     return { error: supabaseConfigError };
   }
 
+  const { data: existingOpen } = await supabase
+    .from('post_reports')
+    .select('id')
+    .eq('reel_id', reelId)
+    .eq('reported_by', userId)
+    .eq('status', 'open')
+    .maybeSingle();
+
+  if (existingOpen) {
+    return {
+      error: 'You have already reported this post. Our team is reviewing it.',
+    };
+  }
+
   const { data, error } = await supabase
     .from('post_reports')
     .insert({
@@ -486,6 +500,11 @@ export async function submitPostReportToSupabase(
     .single();
 
   if (error || !data) {
+    if (error?.code === '23505') {
+      return {
+        error: 'You have already reported this post. Our team is reviewing it.',
+      };
+    }
     return { error: error?.message || 'Unable to submit report.' };
   }
 
@@ -521,92 +540,5 @@ export async function moderateReportedPostRpc(
   return {};
 }
 
+export { fetchVisibleReels } from './reels';
 
-
-interface ReelRow {
-  id: number;
-  author_display: string;
-  author_role: string;
-  author_org: string | null;
-  author_reg: string | null;
-  author_bio: string | null;
-  verified: boolean;
-  kind: 'video' | 'photo';
-  genre: string;
-  discipline: Discipline | 'general';
-  category: string | null;
-  linked_procedure_id: number | null;
-  caption: string;
-  media_path: string | null;
-  is_image: boolean;
-  hue: number;
-  views_count: number;
-  likes_count: number;
-  practice_clicks: number;
-  is_removed: boolean;
-  created_at: string;
-}
-
-export async function fetchVisibleReels(): Promise<{
-  reels: ReelPost[];
-  error?: string;
-}> {
-  if (!isSupabaseConfigured || !supabase) {
-    return { reels: [] };
-  }
-
-  const { data, error } = await supabase
-    .from('reels')
-    .select(
-      'id, author_display, author_role, author_org, author_reg, author_bio, verified, kind, genre, discipline, category, linked_procedure_id, caption, media_path, is_image, hue, views_count, likes_count, practice_clicks, is_removed, created_at',
-    )
-    .eq('is_removed', false)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    return { reels: [], error: error.message };
-  }
-
-  const reels: ReelPost[] = ((data || []) as ReelRow[]).map((row) => {
-    let mediaUrl: string | undefined;
-    if (row.media_path && supabase) {
-      if (
-        row.media_path.startsWith('http://') ||
-        row.media_path.startsWith('https://')
-      ) {
-        mediaUrl = row.media_path;
-      } else {
-        const { data: pub } = supabase.storage
-          .from('reel-media')
-          .getPublicUrl(row.media_path);
-        mediaUrl = pub?.publicUrl;
-      }
-    }
-
-    return {
-      id: row.id,
-      kind: row.kind,
-      by: row.author_display,
-      role: row.author_role,
-      org: row.author_org || '',
-      reg: row.author_reg || '',
-      bio: row.author_bio || '',
-      verified: Boolean(row.verified),
-      genre: row.genre,
-      discipline: row.discipline,
-      category: row.category || undefined,
-      vid: row.linked_procedure_id || undefined,
-      caption: row.caption,
-      hue: row.hue || 200,
-      ago: formatRelativeTime(row.created_at),
-      views: row.views_count || 0,
-      likes: row.likes_count || 0,
-      practiceClicks: row.practice_clicks || 0,
-      comments: [],
-      url: mediaUrl,
-      isImage: Boolean(row.is_image),
-    };
-  });
-
-  return { reels };
-}

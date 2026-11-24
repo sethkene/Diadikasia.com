@@ -38,7 +38,15 @@ interface BottomSheetsProps {
   onChangePostForm: (next: NewPostForm) => void;
   onPickPostFile: (file: File) => void;
   onPublishPost: () => void;
-  onAddComment: (target: 'post' | 'video', id: number, text: string) => void;
+  postSubmitting?: boolean;
+  editingPostId?: number | null;
+  onAddComment: (
+    target: 'post' | 'video',
+    id: number,
+    text: string,
+  ) => Promise<void> | void;
+  onDeleteComment?: (reelId: number, commentId: number) => Promise<void> | void;
+  canModerateComments?: boolean;
   onRespondNotification: (id: number, accept: boolean) => void;
   onChangeInviteForm: (next: InviteForm) => void;
   onSendInvite: () => void;
@@ -78,7 +86,11 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
   onChangePostForm,
   onPickPostFile,
   onPublishPost,
+  postSubmitting = false,
+  editingPostId = null,
   onAddComment,
+  onDeleteComment,
+  canModerateComments = false,
   onRespondNotification,
   onChangeInviteForm,
   onSendInvite,
@@ -88,6 +100,7 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
   onClose,
 }) => {
   const [commentText, setCommentText] = useState('');
+  const [commentBusy, setCommentBusy] = useState(false);
 
   if (!sheet) return null;
 
@@ -98,11 +111,17 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
           ? posts.find((p) => p.id === sheet.id)?.comments || []
           : videoComments[sheet.id] || [];
 
-      const handleCommentSubmit = (e: React.FormEvent) => {
+      const handleCommentSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!commentText.trim()) return;
-        onAddComment(sheet.target, sheet.id, commentText.trim());
-        setCommentText('');
+        if (commentBusy || !commentText.trim()) return;
+        const text = commentText.trim();
+        setCommentBusy(true);
+        try {
+          await onAddComment(sheet.target, sheet.id, text);
+          setCommentText('');
+        } finally {
+          setCommentBusy(false);
+        }
       };
 
       return (
@@ -112,15 +131,35 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
           </h3>
           <div className="mt-3 divide-y divide-slate-100 max-h-64 overflow-y-auto">
             {list.length > 0 ? (
-              list.map((c, idx) => (
-                <div key={idx} className="py-2.5">
-                  <div className="text-xs">
-                    <strong className="text-slate-900">{c.name}</strong>{' '}
-                    <span className="text-slate-400">{c.ago}</span>
+              list.map((c, idx) => {
+                const canDeleteThisComment =
+                  sheet.target === 'post' &&
+                  typeof c.id === 'number' &&
+                  Boolean(onDeleteComment) &&
+                  (canModerateComments ||
+                    (Boolean(currentUser.id) && c.authorId === currentUser.id));
+
+                return (
+                  <div key={c.id ?? idx} className="py-2.5">
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <div>
+                        <strong className="text-slate-900">{c.name}</strong>{' '}
+                        <span className="text-slate-400">{c.ago}</span>
+                      </div>
+                      {canDeleteThisComment && typeof c.id === 'number' && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteComment?.(sheet.id, c.id as number)}
+                          className="text-[11px] font-semibold text-red-700 hover:underline"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                    <div className="text-sm text-slate-700 mt-0.5">{c.text}</div>
                   </div>
-                  <div className="text-sm text-slate-700 mt-0.5">{c.text}</div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <p className="text-sm text-slate-500 py-4">
                 No comments yet. Be the first.
@@ -136,13 +175,15 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
               placeholder="Add a comment"
-              className="flex-1 border border-slate-300 bg-white rounded-xl px-3.5 py-2.5 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              disabled={commentBusy}
+              className="flex-1 border border-slate-300 bg-white rounded-xl px-3.5 py-2.5 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-60"
             />
             <button
               type="submit"
-              className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm min-h-[44px]"
+              disabled={commentBusy || !commentText.trim()}
+              className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white font-semibold text-sm min-h-[44px]"
             >
-              Send
+              {commentBusy ? 'Sending…' : 'Send'}
             </button>
           </form>
           <p className="text-xs text-slate-500 mt-2">
@@ -339,14 +380,17 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
     }
 
     if (sheet.kind === 'newpost') {
+      const isEditing = editingPostId !== null;
       return (
         <div className="space-y-3.5">
           <div>
             <h3 className="font-display font-bold text-base text-slate-900">
-              New post
+              {isEditing ? 'Edit post' : 'New post'}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Posts go live straight away and are not reviewed first.
+              {isEditing
+                ? 'Update your caption, category, or linked procedure.'
+                : 'Posts go live straight away and are not reviewed first.'}
             </p>
           </div>
 
@@ -356,76 +400,87 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
             </p>
           )}
 
-          <div className="grid grid-cols-3 bg-slate-100 rounded-xl p-1 gap-1">
-            {(
-              [
-                ['video', 'Video'],
-                ['photo', 'Photo'],
-                ['rec', 'Record'],
-              ] as const
-            ).map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => {
-                  if (postForm.kind !== k) {
-                    onChangePostForm({
-                      ...postForm,
-                      kind: k,
-                      url: '',
-                      name: '',
-                    });
+          {!isEditing && (
+            <>
+              <div className="grid grid-cols-3 bg-slate-100 rounded-xl p-1 gap-1">
+                {(
+                  [
+                    ['video', 'Video'],
+                    ['photo', 'Photo'],
+                    ['rec', 'Record'],
+                  ] as const
+                ).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    disabled={postSubmitting}
+                    onClick={() => {
+                      if (postForm.kind !== k) {
+                        onChangePostForm({
+                          ...postForm,
+                          kind: k,
+                          url: '',
+                          name: '',
+                          err: '',
+                        });
+                      }
+                    }}
+                    className={`py-2 rounded-lg text-xs font-semibold min-h-[38px] transition-colors ${
+                      postForm.kind === k
+                        ? 'bg-teal-600 text-white'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {postForm.url &&
+                (postForm.isImg ? (
+                  <img
+                    src={postForm.url}
+                    alt="Preview"
+                    className="w-full max-h-48 object-cover rounded-xl"
+                  />
+                ) : (
+                  <video
+                    src={postForm.url}
+                    controls
+                    playsInline
+                    className="w-full max-h-52 rounded-xl bg-black"
+                  />
+                ))}
+
+              <label className="block border-2 border-dashed border-slate-300 rounded-xl p-4 text-center cursor-pointer hover:border-teal-400 transition-colors">
+                <UploadCloud className="w-5 h-5 text-teal-600 mx-auto mb-1" />
+                <span className="text-xs font-semibold text-slate-700">
+                  {postForm.name
+                    ? `${postForm.name} · Tap to change`
+                    : postForm.kind === 'rec'
+                    ? 'Tap to record yourself'
+                    : postForm.kind === 'photo'
+                    ? 'Tap to choose a photo (JPG, PNG, WebP)'
+                    : 'Tap to choose a video (MP4, MOV, WebM)'}
+                </span>
+                <input
+                  type="file"
+                  accept={
+                    postForm.kind === 'photo'
+                      ? 'image/jpeg,image/png,image/webp'
+                      : 'video/mp4,video/quicktime,video/webm'
                   }
-                }}
-                className={`py-2 rounded-lg text-xs font-semibold min-h-[38px] transition-colors ${
-                  postForm.kind === k
-                    ? 'bg-teal-600 text-white'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {postForm.url &&
-            (postForm.isImg ? (
-              <img
-                src={postForm.url}
-                alt="Preview"
-                className="w-full max-h-48 object-cover rounded-xl"
-              />
-            ) : (
-              <video
-                src={postForm.url}
-                controls
-                playsInline
-                className="w-full max-h-52 rounded-xl bg-black"
-              />
-            ))}
-
-          <label className="block border-2 border-dashed border-slate-300 rounded-xl p-4 text-center cursor-pointer hover:border-teal-400 transition-colors">
-            <UploadCloud className="w-5 h-5 text-teal-600 mx-auto mb-1" />
-            <span className="text-xs font-semibold text-slate-700">
-              {postForm.name
-                ? 'Choose a different file'
-                : postForm.kind === 'rec'
-                ? 'Tap to record yourself'
-                : postForm.kind === 'photo'
-                ? 'Tap to choose a photo'
-                : 'Tap to choose a video'}
-            </span>
-            <input
-              type="file"
-              accept={postForm.kind === 'photo' ? 'image/*' : 'video/*'}
-              capture={postForm.kind === 'rec' ? 'user' : undefined}
-              hidden
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onPickPostFile(file);
-              }}
-            />
-          </label>
+                  capture={postForm.kind === 'rec' ? 'user' : undefined}
+                  disabled={postSubmitting}
+                  hidden
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) onPickPostFile(file);
+                  }}
+                />
+              </label>
+            </>
+          )}
 
           <div>
             <label
@@ -530,26 +585,37 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
             </p>
           </div>
 
-          <label className="flex items-start gap-2.5 text-xs text-slate-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={postForm.confirmed}
-              onChange={(e) =>
-                onChangePostForm({ ...postForm, confirmed: e.target.checked })
-              }
-              className="mt-0.5 w-4 h-4 accent-teal-600 shrink-0"
-            />
-            <span>
-              No patient can be identified, and I have the right to share this.
-            </span>
-          </label>
+          {!isEditing && (
+            <label className="flex items-start gap-2.5 text-xs text-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={postForm.confirmed}
+                disabled={postSubmitting}
+                onChange={(e) =>
+                  onChangePostForm({ ...postForm, confirmed: e.target.checked })
+                }
+                className="mt-0.5 w-4 h-4 accent-teal-600 shrink-0"
+              />
+              <span>
+                No patient can be identified, and I have the right to share
+                this.
+              </span>
+            </label>
+          )}
 
           <button
             type="button"
+            disabled={postSubmitting}
             onClick={onPublishPost}
-            className="w-full py-3 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm min-h-[46px] transition-colors"
+            className="w-full py-3 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white font-semibold text-sm min-h-[46px] transition-colors"
           >
-            Post
+            {postSubmitting
+              ? isEditing
+                ? 'Saving…'
+                : 'Uploading & publishing…'
+              : isEditing
+              ? 'Save changes'
+              : 'Post'}
           </button>
         </div>
       );

@@ -38,6 +38,16 @@ interface ReelsViewProps {
   onChangeFeedTab: (tab: ReelsFeedTab) => void;
   videos: ProcedureVideo[];
   likedIds: Set<string>;
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
+  currentUserId?: string;
+  canModerate?: boolean;
+  onEditPost?: (post: ReelPost) => void;
+  onDeletePost?: (post: ReelPost) => void;
   onToggleLike: (postId: number) => void;
   onEnsureLike: (postId: number) => void;
   onOpenComments: (postId: number) => void;
@@ -63,6 +73,16 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   onChangeFeedTab,
   videos,
   likedIds,
+  loading = false,
+  error = null,
+  onRetry,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+  currentUserId,
+  canModerate = false,
+  onEditPost,
+  onDeletePost,
   onToggleLike,
   onEnsureLike,
   onOpenComments,
@@ -98,6 +118,7 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
   const [failedMediaIds, setFailedMediaIds] = useState<Set<number>>(
     () => new Set(),
   );
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const postsRef = useRef(posts);
   postsRef.current = posts;
@@ -276,17 +297,43 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
             : 'Posts from your connected study friends and your own uploads.'}
         </p>
 
-        {posts.length === 0 ? (
+        {loading && posts.length === 0 ? (
+          <div className="h-[420px] rounded-2xl border border-slate-200 bg-white p-6 flex flex-col items-center justify-center text-center animate-pulse">
+            <div className="w-12 h-12 rounded-full bg-slate-200 mb-3" />
+            <div className="h-4 w-40 bg-slate-200 rounded mb-2" />
+            <div className="h-3 w-56 bg-slate-200 rounded" />
+          </div>
+        ) : error && posts.length === 0 ? (
+          <div className="h-[420px] rounded-2xl border border-red-200 bg-white p-6 flex flex-col items-center justify-center text-center">
+            <div className="font-display font-bold text-base text-slate-900">
+              Unable to load Reels
+            </div>
+            <p className="text-sm text-slate-600 mt-1.5 max-w-xs">{error}</p>
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="mt-4 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold min-h-[40px]"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        ) : posts.length === 0 ? (
           <div className="h-[420px] rounded-2xl border border-slate-200 bg-white p-6 flex flex-col items-center justify-center text-center">
             <div className="font-display font-bold text-base text-slate-900">
               {feedTab === 'friends'
                 ? 'No posts from friends yet'
-                : 'No posts left in this feed'}
+                : hasCustomHidden
+                ? 'No posts left in this feed'
+                : 'No community Reels yet'}
             </div>
             <p className="text-sm text-slate-500 mt-1.5 max-w-xs">
               {feedTab === 'friends'
                 ? 'Switch to For You to explore clinical tips across the community, or add more study friends.'
-                : 'You hid all available posts. Reset your feed preferences to restore them.'}
+                : hasCustomHidden
+                ? 'You hid all available posts. Reset your feed preferences to restore them.'
+                : 'Share a short clinical tip, skills-lab reflection, or procedure insight with the community.'}
             </p>
             <div className="mt-4 flex items-center gap-2">
               {feedTab === 'friends' ? (
@@ -297,13 +344,21 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 >
                   Open For You feed
                 </button>
-              ) : (
+              ) : hasCustomHidden ? (
                 <button
                   type="button"
                   onClick={onResetPreferences}
                   className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold min-h-[40px]"
                 >
                   Reset preferences
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onOpenNewPost}
+                  className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold min-h-[40px]"
+                >
+                  Create first Reel
                 </button>
               )}
             </div>
@@ -455,6 +510,52 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                           <ArrowRight className="w-3 h-3" />
                         </button>
                       )}
+                      {currentUserId &&
+                        post.authorId === currentUserId &&
+                        onEditPost && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfirmDeleteId(null);
+                              onEditPost(post);
+                            }}
+                            className="text-xs font-medium text-white/85 hover:text-white underline"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      {((currentUserId && post.authorId === currentUserId) ||
+                        canModerate) &&
+                        onDeletePost &&
+                        (confirmDeleteId === post.id ? (
+                          <span className="inline-flex items-center gap-2 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirmDeleteId(null);
+                                onDeletePost(post);
+                              }}
+                              className="font-semibold text-rose-300 hover:text-rose-200 underline"
+                            >
+                              Confirm delete
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="text-white/75 hover:text-white"
+                            >
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(post.id)}
+                            className="text-xs font-medium text-rose-300/90 hover:text-rose-200 underline"
+                          >
+                            Delete
+                          </button>
+                        ))}
                     </div>
                     <div className="text-[11px] text-white/70 mt-1.5">
                       Community post, not reviewed. Not clinical guidance.
@@ -542,6 +643,18 @@ export const ReelsView: React.FC<ReelsViewProps> = ({
                 </section>
               );
             })}
+          </div>
+        )}
+        {hasMore && onLoadMore && (
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              disabled={loadingMore}
+              onClick={onLoadMore}
+              className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-60 text-xs font-semibold text-slate-800 min-h-[38px] transition-colors"
+            >
+              {loadingMore ? 'Loading more…' : 'Load more reels'}
+            </button>
           </div>
         )}
       </div>

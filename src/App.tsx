@@ -92,7 +92,6 @@ import {
   fetchInstructorApplications,
   fetchPostReports,
   fetchVideoSubmissions,
-  fetchVisibleReels,
   moderateReportedPostRpc,
   removeSubAdminRpc,
   reviewInstructorApplicationRpc,
@@ -102,6 +101,24 @@ import {
   submitPostReportToSupabase,
   submitVideoForReviewToSupabase,
 } from './services/rbac';
+import {
+  addReelCommentInSupabase,
+  createPracticeMilestoneInSupabase,
+  createReelInSupabase,
+  deleteReelCommentInSupabase,
+  deleteReelInSupabase,
+  fetchMyReelLikes,
+  fetchMyReelSignals,
+  fetchPracticeMilestonesFromSupabase,
+  fetchVisibleReelsPage,
+  incrementReelPracticeClickRpc,
+  incrementReelViewRpc,
+  setReelLikeInSupabase,
+  subscribeToReelsUpdates,
+  updateReelInSupabase,
+  upsertMyReelSignals,
+  validateReelMediaFile,
+} from './services/reels';
 import {
   addProcedureCommentInSupabase,
   fetchMyProcedureLikes,
@@ -219,14 +236,11 @@ export default function App() {
       ? new Set()
       : new Set(readStored<number[]>(STORAGE_KEYS.savedIds, [])),
   );
-  const [likedKeys, setLikedKeys] = useState<Set<string>>(() => {
-    const stored = readStored<string[]>(STORAGE_KEYS.likedKeys, []);
-    return new Set(
-      isSupabaseConfigured
-        ? stored.filter((k) => !k.startsWith('v'))
-        : stored,
-    );
-  });
+  const [likedKeys, setLikedKeys] = useState<Set<string>>(() =>
+    isSupabaseConfigured
+      ? new Set()
+      : new Set(readStored<string[]>(STORAGE_KEYS.likedKeys, [])),
+  );
   const [extraViews, setExtraViews] = useState<Record<number, number>>(() =>
     isSupabaseConfigured ? {} : readStored(STORAGE_KEYS.extraViews, {}),
   );
@@ -239,17 +253,29 @@ export default function App() {
   );
 
   const [posts, setPosts] = useState<ReelPost[]>(() =>
-    readStored(STORAGE_KEYS.posts, INITIAL_POSTS),
+    isSupabaseConfigured ? [] : readStored(STORAGE_KEYS.posts, INITIAL_POSTS),
   );
+  const [reelsLoading, setReelsLoading] = useState<boolean>(
+    isSupabaseConfigured,
+  );
+  const [reelsLoadingMore, setReelsLoadingMore] = useState<boolean>(false);
+  const [reelsHasMore, setReelsHasMore] = useState<boolean>(false);
+  const [reelsError, setReelsError] = useState<string | null>(null);
+  const [postSubmitting, setPostSubmitting] = useState<boolean>(false);
+  const [editingPostId, setEditingPostId] = useState<number | null>(null);
   const [reelsFeedTab, setReelsFeedTab] = useState<ReelsFeedTab>('for_you');
   const [reelSignals, setReelSignals] = useState<ReelSignals>(() =>
-    readStored(STORAGE_KEYS.signals, INITIAL_REEL_SIGNALS),
+    isSupabaseConfigured
+      ? INITIAL_REEL_SIGNALS
+      : readStored(STORAGE_KEYS.signals, INITIAL_REEL_SIGNALS),
   );
   const [shareEnabled, setShareEnabled] = useState<boolean>(() =>
     readStored(STORAGE_KEYS.sharePopups, true),
   );
   const [milestones, setMilestones] = useState<PracticeMilestone[]>(() =>
-    readStored(STORAGE_KEYS.milestones, INITIAL_PRACTICE_MILESTONES),
+    isSupabaseConfigured
+      ? []
+      : readStored(STORAGE_KEYS.milestones, INITIAL_PRACTICE_MILESTONES),
   );
 
   const [friends, setFriends] = useState<Friend[]>(() =>
@@ -296,13 +322,17 @@ export default function App() {
   const inFlightAuthUserIdRef = useRef<string | null>(null);
   const recoveryModeRef = useRef<boolean>(false);
   const contributeFileRef = useRef<File | null>(null);
+  const postFileRef = useRef<File | null>(null);
   const lastProfileRefreshRef = useRef<number>(0);
   const serverLikedProcIdsRef = useRef<Set<number>>(new Set());
+  const serverLikedReelIdsRef = useRef<Set<number>>(new Set());
+  const signalsLoadedRef = useRef<boolean>(false);
+  const signalsSaveTimerRef = useRef<number | null>(null);
   const filterRequestIdRef = useRef<number>(0);
   const userRef = useRef<UserProfile>(user);
   userRef.current = user;
 
-  // Persist local procedures, study progress, and community state
+  // Persist local procedures, study progress, and community state (demo mode only for backend-integrated tables)
   useEffect(() => {
     try {
       if (!isSupabaseConfigured) {
@@ -330,22 +360,21 @@ export default function App() {
           STORAGE_KEYS.videoComments,
           JSON.stringify(videoComments),
         );
+        localStorage.setItem(STORAGE_KEYS.posts, JSON.stringify(posts));
+        localStorage.setItem(STORAGE_KEYS.signals, JSON.stringify(reelSignals));
+        localStorage.setItem(
+          STORAGE_KEYS.milestones,
+          JSON.stringify(milestones),
+        );
+        localStorage.setItem(
+          STORAGE_KEYS.sharePopups,
+          JSON.stringify(shareEnabled),
+        );
+        localStorage.setItem(
+          STORAGE_KEYS.likedKeys,
+          JSON.stringify(Array.from(likedKeys)),
+        );
       }
-      localStorage.setItem(STORAGE_KEYS.posts, JSON.stringify(posts));
-      localStorage.setItem(STORAGE_KEYS.signals, JSON.stringify(reelSignals));
-      localStorage.setItem(STORAGE_KEYS.milestones, JSON.stringify(milestones));
-      localStorage.setItem(
-        STORAGE_KEYS.sharePopups,
-        JSON.stringify(shareEnabled),
-      );
-      localStorage.setItem(
-        STORAGE_KEYS.likedKeys,
-        JSON.stringify(
-          isSupabaseConfigured
-            ? Array.from(likedKeys).filter((k) => !k.startsWith('v'))
-            : Array.from(likedKeys),
-        ),
-      );
       localStorage.setItem(STORAGE_KEYS.friends, JSON.stringify(friends));
       localStorage.setItem(
         STORAGE_KEYS.sentRequests,
@@ -403,11 +432,21 @@ export default function App() {
     [],
   );
 
+  const applyReelLikedBaseline = useCallback(
+    (list: ReelPost[], likedIdSet: Set<number>): ReelPost[] =>
+      list.map((p) => ({
+        ...p,
+        likes: Math.max(0, p.likes - (likedIdSet.has(p.id) ? 1 : 0)),
+      })),
+    [],
+  );
+
   const syncRoleScopedData = useCallback(
     async (activeUser: UserProfile) => {
       if (!isSupabaseConfigured || !activeUser.id) return;
 
       setProceduresLoading(true);
+      setReelsLoading(true);
 
       const isAdminUser = activeUser.role === 'admin';
       const canSeeSubmissions =
@@ -432,6 +471,8 @@ export default function App() {
           likesRes,
           commentsRes,
           reelsRes,
+          reelLikesRes,
+          signalsRes,
         ] = await Promise.all([
           fetchDirectoryProfiles(isAdminUser),
           fetchInstructorApplications(),
@@ -452,8 +493,15 @@ export default function App() {
           fetchMyProcedureProgress(activeUser.id),
           fetchMyProcedureLikes(activeUser.id),
           fetchProcedureComments(),
-          fetchVisibleReels(),
+          fetchVisibleReelsPage({ offset: 0, limit: 20 }),
+          fetchMyReelLikes(activeUser.id),
+          fetchMyReelSignals(activeUser.id),
         ]);
+
+        const milestonesRes = await fetchPracticeMilestonesFromSupabase(
+          directory,
+          procsRes.procedures,
+        );
 
         setAccounts(directory);
         if (!appsRes.error) {
@@ -483,12 +531,22 @@ export default function App() {
         if (!likesRes.error) {
           nextLikedSet = new Set(likesRes.likedIds);
           serverLikedProcIdsRef.current = nextLikedSet;
-          setLikedKeys((prev) => {
-            const next = new Set(
-              Array.from(prev).filter((k) => !k.startsWith('v')),
-            );
-            for (const id of likesRes.likedIds) {
+        }
+
+        let nextReelLikedSet = serverLikedReelIdsRef.current;
+        if (!reelLikesRes.error) {
+          nextReelLikedSet = new Set(reelLikesRes.likedIds);
+          serverLikedReelIdsRef.current = nextReelLikedSet;
+        }
+
+        if (!likesRes.error || !reelLikesRes.error) {
+          setLikedKeys(() => {
+            const next = new Set<string>();
+            for (const id of nextLikedSet) {
               next.add(`v${id}`);
+            }
+            for (const id of nextReelLikedSet) {
+              next.add(`p${id}`);
             }
             return next;
           });
@@ -517,14 +575,30 @@ export default function App() {
           setProceduresReloadSeq((n) => n + 1);
         }
 
-        if (!reelsRes.error && reelsRes.reels.length > 0) {
-          setPosts(reelsRes.reels);
+        if (reelsRes.error) {
+          setReelsError(reelsRes.error);
+          setPosts([]);
+          setReelsHasMore(false);
+        } else {
+          setReelsError(null);
+          setReelsHasMore(reelsRes.hasMore);
+          setPosts(applyReelLikedBaseline(reelsRes.reels, nextReelLikedSet));
+        }
+
+        if (!signalsRes.error) {
+          setReelSignals(signalsRes.signals);
+        }
+        signalsLoadedRef.current = true;
+
+        if (!milestonesRes.error) {
+          setMilestones(milestonesRes.milestones);
         }
       } finally {
         setProceduresLoading(false);
+        setReelsLoading(false);
       }
     },
-    [applyLikedBaseline],
+    [applyLikedBaseline, applyReelLikedBaseline],
   );
 
   const refreshAuthoritativeProfile = useCallback(
@@ -651,15 +725,27 @@ export default function App() {
       setVideos([]);
       setLibraryVideos([]);
       setProceduresError(null);
+      setPosts([]);
+      setReelsError(null);
+      setReelsHasMore(false);
+      setReelsLoadingMore(false);
+      setMilestones([]);
+      setReelSignals(INITIAL_REEL_SIGNALS);
+      signalsLoadedRef.current = false;
+      if (signalsSaveTimerRef.current) {
+        window.clearTimeout(signalsSaveTimerRef.current);
+        signalsSaveTimerRef.current = null;
+      }
+      postFileRef.current = null;
+      setEditingPostId(null);
+      setPostSubmitting(false);
       setSavedIds(new Set());
       setCompletedStepsMap({});
       setExtraViews({});
       setVideoComments({});
       serverLikedProcIdsRef.current = new Set();
-      setLikedKeys((prev) => {
-        const next = new Set(Array.from(prev).filter((k) => !k.startsWith('v')));
-        return next;
-      });
+      serverLikedReelIdsRef.current = new Set();
+      setLikedKeys(new Set());
       if (notice) {
         setAuthNotice(notice);
       }
@@ -895,6 +981,96 @@ export default function App() {
     }
   }, [screen, activeTab, user.id, refreshAuthoritativeProfile]);
 
+  // Subscribe to Realtime Reels, comments, and moderation reports
+  useEffect(() => {
+    if (screen !== 'app' || !isSupabaseConfigured || !user.id) return;
+
+    const canModerateNow =
+      user.role === 'admin' ||
+      (user.role === 'sub_admin' && Boolean(user.permissions?.canModeratePosts));
+
+    return subscribeToReelsUpdates(user.id, canModerateNow, {
+      onReelUpsert: (incoming) => {
+        const baselineAdjustment = serverLikedReelIdsRef.current.has(incoming.id)
+          ? 1
+          : 0;
+        const normalized: ReelPost = {
+          ...incoming,
+          likes: Math.max(0, incoming.likes - baselineAdjustment),
+        };
+        setPosts((prev) => {
+          const exists = prev.some((p) => p.id === normalized.id);
+          if (!exists) {
+            return [normalized, ...prev];
+          }
+          return prev.map((p) =>
+            p.id === normalized.id
+              ? { ...normalized, comments: p.comments }
+              : p,
+          );
+        });
+      },
+      onReelRemove: (reelId) => {
+        setPosts((prev) => prev.filter((p) => p.id !== reelId));
+      },
+      onCommentInsert: (reelId, comment) => {
+        setPosts((prev) =>
+          prev.map((p) => {
+            if (p.id !== reelId) return p;
+            if (
+              comment.id !== undefined &&
+              p.comments.some((c) => c.id === comment.id)
+            ) {
+              return p;
+            }
+            return { ...p, comments: [...p.comments, comment] };
+          }),
+        );
+      },
+      onCommentDelete: (commentId) => {
+        setPosts((prev) =>
+          prev.map((p) =>
+            p.comments.some((c) => c.id === commentId)
+              ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) }
+              : p,
+          ),
+        );
+      },
+      onReportsChanged: () => {
+        if (!canModerateNow) return;
+        void fetchPostReports().then(({ reports: nextReports, error }) => {
+          if (!error) setReports(nextReports);
+        });
+      },
+    });
+  }, [screen, user.id, user.role, user.permissions?.canModeratePosts]);
+
+  // Persist recommender reel signals to Supabase (debounced)
+  useEffect(() => {
+    if (
+      !isSupabaseConfigured ||
+      screen !== 'app' ||
+      !user.id ||
+      !signalsLoadedRef.current
+    ) {
+      return;
+    }
+
+    if (signalsSaveTimerRef.current) {
+      window.clearTimeout(signalsSaveTimerRef.current);
+    }
+    signalsSaveTimerRef.current = window.setTimeout(() => {
+      void upsertMyReelSignals(user.id!, reelSignals);
+    }, 700);
+
+    return () => {
+      if (signalsSaveTimerRef.current) {
+        window.clearTimeout(signalsSaveTimerRef.current);
+        signalsSaveTimerRef.current = null;
+      }
+    };
+  }, [reelSignals, screen, user.id]);
+
   // Query Supabase published procedure library when filters or search change
   useEffect(() => {
     if (!isSupabaseConfigured || screen !== 'app' || !user.id) return;
@@ -1000,15 +1176,27 @@ export default function App() {
       setVideos([]);
       setLibraryVideos([]);
       setProceduresError(null);
+      setPosts([]);
+      setReelsError(null);
+      setReelsHasMore(false);
+      setReelsLoadingMore(false);
+      setMilestones([]);
+      setReelSignals(INITIAL_REEL_SIGNALS);
+      signalsLoadedRef.current = false;
+      if (signalsSaveTimerRef.current) {
+        window.clearTimeout(signalsSaveTimerRef.current);
+        signalsSaveTimerRef.current = null;
+      }
+      postFileRef.current = null;
+      setEditingPostId(null);
+      setPostSubmitting(false);
       setSavedIds(new Set());
       setCompletedStepsMap({});
       setExtraViews({});
       setVideoComments({});
       serverLikedProcIdsRef.current = new Set();
-      setLikedKeys((prev) => {
-        const next = new Set(Array.from(prev).filter((k) => !k.startsWith('v')));
-        return next;
-      });
+      serverLikedReelIdsRef.current = new Set();
+      setLikedKeys(new Set());
     }
     setScreen('auth');
     setAuthMode('in');
@@ -1165,6 +1353,11 @@ export default function App() {
   };
 
   const toggleLikeKey = (key: string) => {
+    if (isSupabaseConfigured && !user.id) {
+      showToast('Please sign in to like posts.');
+      return;
+    }
+
     const willLike = !likedKeys.has(key);
     setLikedKeys((prev) => {
       const next = new Set(prev);
@@ -1195,10 +1388,33 @@ export default function App() {
           },
         );
       }
+    } else if (isSupabaseConfigured && user.id && key.startsWith('p')) {
+      const reelId = Number(key.slice(1));
+      if (!Number.isNaN(reelId)) {
+        const hadBaseline = serverLikedReelIdsRef.current.has(reelId);
+        if (willLike) serverLikedReelIdsRef.current.add(reelId);
+        else serverLikedReelIdsRef.current.delete(reelId);
+
+        void setReelLikeInSupabase(user.id, reelId, willLike).then(
+          ({ error }) => {
+            if (!error) return;
+            if (hadBaseline) serverLikedReelIdsRef.current.add(reelId);
+            else serverLikedReelIdsRef.current.delete(reelId);
+            setLikedKeys((prev) => {
+              const rollback = new Set(prev);
+              if (willLike) rollback.delete(key);
+              else rollback.add(key);
+              return rollback;
+            });
+            showToast(error);
+          },
+        );
+      }
     }
   };
 
   const ensureLikePost = (postId: number) => {
+    if (isSupabaseConfigured && !user.id) return;
     const key = `p${postId}`;
     if (likedKeys.has(key)) return;
     setLikedKeys((prev) => {
@@ -1208,6 +1424,20 @@ export default function App() {
     });
     const post = posts.find((p) => p.id === postId);
     if (post) boostAffinity(post.discipline, post.category, 2);
+
+    if (isSupabaseConfigured && user.id) {
+      serverLikedReelIdsRef.current.add(postId);
+      void setReelLikeInSupabase(user.id, postId, true).then(({ error }) => {
+        if (!error) return;
+        serverLikedReelIdsRef.current.delete(postId);
+        setLikedKeys((prev) => {
+          const rollback = new Set(prev);
+          rollback.delete(key);
+          return rollback;
+        });
+        showToast(error);
+      });
+    }
   };
 
   const toggleStepDone = (videoId: number, stepIndex: number) => {
@@ -1273,12 +1503,15 @@ export default function App() {
       : 'Sequence completed';
 
     const userName = user.name || 'Learner';
+    const tempId = nextIdRef.current++;
+    const procedureTitle = targetVideo?.title || 'Clinical procedure';
+    const category = targetVideo?.category || 'Clinical skills';
     const newMilestone: PracticeMilestone = {
-      id: nextIdRef.current++,
+      id: tempId,
       userName,
-      procedureTitle: targetVideo?.title || 'Clinical procedure',
+      procedureTitle,
       vid: session.vid,
-      category: targetVideo?.category || 'Clinical skills',
+      category,
       points,
       scoreText,
       createdAt: Date.now(),
@@ -1298,6 +1531,24 @@ export default function App() {
         : prev;
       return [newMilestone, ...filtered].slice(0, 20);
     });
+
+    if (isSupabaseConfigured && user.id) {
+      void createPracticeMilestoneInSupabase({
+        userId: user.id,
+        userName,
+        procedureId: session.vid,
+        procedureTitle,
+        category,
+        points,
+        scoreText,
+        reflection: session.reflection,
+      }).then(({ milestone }) => {
+        if (!milestone) return;
+        setMilestones((prev) =>
+          prev.map((m) => (m.id === tempId ? milestone : m)),
+        );
+      });
+    }
   };
 
   const handlePracticeAction = (
@@ -1944,6 +2195,9 @@ export default function App() {
         showToast(error);
         return;
       }
+      if (action === 'removed') {
+        setPosts((prev) => prev.filter((p) => p.id !== target.postId));
+      }
       await syncRoleScopedData(user);
       showToast(
         action === 'removed' ? 'Post taken down from Reels.' : 'Report dismissed.',
@@ -1963,7 +2217,49 @@ export default function App() {
     }
   };
 
+  const handleLoadMoreReels = async () => {
+    if (!isSupabaseConfigured || reelsLoadingMore || !reelsHasMore) return;
+    setReelsLoadingMore(true);
+    try {
+      const { reels, hasMore, error } = await fetchVisibleReelsPage({
+        offset: posts.length,
+        limit: 20,
+      });
+      if (error) {
+        showToast(error);
+        return;
+      }
+      setReelsHasMore(hasMore);
+      const normalized = applyReelLikedBaseline(
+        reels,
+        serverLikedReelIdsRef.current,
+      );
+      setPosts((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        const uniqueIncoming = normalized.filter((p) => !seen.has(p.id));
+        return [...prev, ...uniqueIncoming];
+      });
+    } finally {
+      setReelsLoadingMore(false);
+    }
+  };
+
   const handlePickPostFile = (file: File) => {
+    if (isSupabaseConfigured) {
+      const fileErr = validateReelMediaFile(file, postForm.kind);
+      if (fileErr) {
+        postFileRef.current = null;
+        setPostForm((prev) => ({
+          ...prev,
+          url: '',
+          name: '',
+          err: fileErr,
+        }));
+        return;
+      }
+    }
+
+    postFileRef.current = file;
     let url = '';
     try {
       url = URL.createObjectURL(file);
@@ -1975,11 +2271,53 @@ export default function App() {
       url,
       name: file.name,
       isImg: file.type.startsWith('image'),
+      err: '',
     }));
   };
 
-  const handlePublishPost = () => {
-    if (!postForm.url && !postForm.name) {
+  const handleOpenEditPost = (post: ReelPost) => {
+    setEditingPostId(post.id);
+    postFileRef.current = null;
+    const safeCaption = post.caption || '';
+    setPostForm({
+      kind: post.kind === 'photo' ? 'photo' : 'video',
+      url: post.url || '',
+      name: safeCaption.slice(0, 32) || 'Existing media',
+      isImg: Boolean(post.isImage),
+      genre: post.genre || 'Tip',
+      discipline: post.discipline || 'general',
+      linkedVid: typeof post.vid === 'number' ? post.vid : '',
+      caption: safeCaption,
+      confirmed: true,
+      err: '',
+    });
+    setSheet({ kind: 'newpost' });
+  };
+
+  const handleDeletePost = async (post: ReelPost) => {
+    if (isSupabaseConfigured) {
+      if (!user.id) {
+        showToast('Please sign in first.');
+        return;
+      }
+      const { error } = await deleteReelInSupabase(post.id, post.mediaPath);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      setPosts((prev) => prev.filter((p) => p.id !== post.id));
+      showToast('Reel deleted.');
+      return;
+    }
+
+    setPosts((prev) => prev.filter((p) => p.id !== post.id));
+    showToast('Reel deleted.');
+  };
+
+  const handlePublishPost = async () => {
+    if (postSubmitting) return;
+
+    if (editingPostId === null && !postForm.url && !postForm.name) {
       setPostForm((prev) => ({
         ...prev,
         err: 'Choose or record a video or photo first.',
@@ -1998,6 +2336,119 @@ export default function App() {
       return;
     }
 
+    const linkedVideo =
+      postForm.linkedVid !== ''
+        ? videos.find((v) => v.id === Number(postForm.linkedVid))
+        : undefined;
+
+    if (isSupabaseConfigured) {
+      if (!user.id) {
+        setPostForm((prev) => ({
+          ...prev,
+          err: 'Please sign in before posting to Reels.',
+        }));
+        return;
+      }
+
+      setPostSubmitting(true);
+      try {
+        if (editingPostId !== null) {
+          const { post, error } = await updateReelInSupabase({
+            reelId: editingPostId,
+            userId: user.id,
+            caption: postForm.caption.trim(),
+            genre: postForm.genre,
+            discipline: linkedVideo
+              ? linkedVideo.discipline
+              : postForm.discipline,
+            linkedProcedureId: linkedVideo ? linkedVideo.id : null,
+            category: linkedVideo ? linkedVideo.category : undefined,
+          });
+          if (error || !post) {
+            setPostForm((prev) => ({
+              ...prev,
+              err: error || 'Unable to update this Reel.',
+            }));
+            return;
+          }
+          const baselineAdjustment = serverLikedReelIdsRef.current.has(post.id)
+            ? 1
+            : 0;
+          setPosts((prev) =>
+            prev.map((p) =>
+              p.id === post.id
+                ? {
+                    ...post,
+                    comments: p.comments,
+                    likes: Math.max(0, post.likes - baselineAdjustment),
+                  }
+                : p,
+            ),
+          );
+          setEditingPostId(null);
+          postFileRef.current = null;
+          setSheet(null);
+          showToast('Reel updated.');
+          return;
+        }
+
+        const file = postFileRef.current;
+        if (!file) {
+          setPostForm((prev) => ({
+            ...prev,
+            err: 'Select or record a media file to upload.',
+          }));
+          return;
+        }
+
+        const { post, error } = await createReelInSupabase({
+          user,
+          form: postForm,
+          file,
+          linkedCategory: linkedVideo?.category,
+        });
+        if (error || !post) {
+          setPostForm((prev) => ({
+            ...prev,
+            err: error || 'Unable to publish Reel.',
+          }));
+          return;
+        }
+
+        setPosts((prev) => [post, ...prev.filter((p) => p.id !== post.id)]);
+        postFileRef.current = null;
+        setSheet(null);
+        showToast('Posted to Reels.');
+      } finally {
+        setPostSubmitting(false);
+      }
+      return;
+    }
+
+    if (editingPostId !== null) {
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === editingPostId
+            ? {
+                ...p,
+                caption: postForm.caption.trim(),
+                genre: postForm.genre,
+                discipline: linkedVideo
+                  ? linkedVideo.discipline
+                  : postForm.discipline,
+                category: linkedVideo ? linkedVideo.category : undefined,
+                vid: linkedVideo ? linkedVideo.id : undefined,
+              }
+            : p,
+        ),
+      );
+      setEditingPostId(null);
+      postFileRef.current = null;
+      setSheet(null);
+      showToast('Reel updated.');
+      return;
+    }
+
     const roleLabel =
       user.role === 'instructor'
         ? 'Clinical instructor'
@@ -2007,11 +2458,6 @@ export default function App() {
         ? 'Staff'
         : 'Learner';
 
-    const linkedVideo =
-      postForm.linkedVid !== ''
-        ? videos.find((v) => v.id === Number(postForm.linkedVid))
-        : undefined;
-
     const newPost: ReelPost = {
       id: nextIdRef.current++,
       kind: postForm.kind === 'photo' ? 'photo' : 'video',
@@ -2020,7 +2466,7 @@ export default function App() {
       org: '',
       reg: '',
       bio: '',
-      verified: user.role === 'instructor',
+      verified: user.role === 'instructor' || user.role === 'admin',
       genre: postForm.genre,
       discipline: linkedVideo ? linkedVideo.discipline : postForm.discipline,
       category: linkedVideo ? linkedVideo.category : undefined,
@@ -2036,6 +2482,7 @@ export default function App() {
       isImage: postForm.isImg,
     };
     setPosts((prev) => [newPost, ...prev]);
+    postFileRef.current = null;
     setSheet(null);
     showToast('Posted to Reels.');
   };
@@ -2044,6 +2491,9 @@ export default function App() {
     setPosts((prev) =>
       prev.map((p) => (p.id === postId ? { ...p, views: p.views + 1 } : p)),
     );
+    if (isSupabaseConfigured && userRef.current.id) {
+      void incrementReelViewRpc(postId);
+    }
   }, []);
 
   const handleRecordReelDwell = useCallback(
@@ -2093,6 +2543,9 @@ export default function App() {
           : p,
       ),
     );
+    if (isSupabaseConfigured && user.id) {
+      void incrementReelPracticeClickRpc(fromPostId);
+    }
     setReelSignals((prev) => ({
       ...prev,
       practiceConversions: prev.practiceConversions.includes(fromPostId)
@@ -2104,6 +2557,9 @@ export default function App() {
 
   const handleResetReelPreferences = () => {
     setReelSignals(INITIAL_REEL_SIGNALS);
+    if (isSupabaseConfigured && user.id) {
+      void upsertMyReelSignals(user.id, INITIAL_REEL_SIGNALS);
+    }
     showToast('Feed preferences reset.');
   };
 
@@ -2119,6 +2575,36 @@ export default function App() {
       ago: 'now',
     };
     if (target === 'post') {
+      if (isSupabaseConfigured) {
+        if (!user.id) {
+          showToast('Please sign in to post a comment.');
+          return;
+        }
+        const { comment, error } = await addReelCommentInSupabase(
+          id,
+          user.id,
+          authorName,
+          text,
+        );
+        if (error || !comment) {
+          showToast(error || 'Unable to post comment.');
+          return;
+        }
+        setPosts((prev) =>
+          prev.map((p) => {
+            if (p.id !== id) return p;
+            if (
+              comment.id !== undefined &&
+              p.comments.some((c) => c.id === comment.id)
+            ) {
+              return p;
+            }
+            return { ...p, comments: [...p.comments, comment] };
+          }),
+        );
+        return;
+      }
+
       setPosts((prev) =>
         prev.map((p) =>
           p.id === id ? { ...p, comments: [...p.comments, newComment] } : p,
@@ -2149,6 +2635,33 @@ export default function App() {
       ...prev,
       [id]: [...(prev[id] || []), newComment],
     }));
+  };
+
+  const handleDeleteComment = async (reelId: number, commentId: number) => {
+    if (isSupabaseConfigured) {
+      const { error } = await deleteReelCommentInSupabase(commentId);
+      if (error) {
+        showToast(error);
+        return;
+      }
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === reelId
+            ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) }
+            : p,
+        ),
+      );
+      showToast('Comment deleted.');
+      return;
+    }
+
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === reelId
+          ? { ...p, comments: p.comments.filter((c) => c.id !== commentId) }
+          : p,
+      ),
+    );
   };
 
   const handleSendMessage = (friendName: string, text: string) => {
@@ -2671,6 +3184,16 @@ export default function App() {
             onChangeFeedTab={setReelsFeedTab}
             videos={videos}
             likedIds={likedKeys}
+            loading={reelsLoading}
+            error={reelsError}
+            onRetry={() => void syncRoleScopedData(user)}
+            hasMore={reelsHasMore}
+            loadingMore={reelsLoadingMore}
+            onLoadMore={handleLoadMoreReels}
+            currentUserId={user.id}
+            canModerate={canModeratePosts}
+            onEditPost={handleOpenEditPost}
+            onDeletePost={handleDeletePost}
             onToggleLike={(postId) => toggleLikeKey(`p${postId}`)}
             onEnsureLike={ensureLikePost}
             onOpenComments={(postId) =>
@@ -2683,6 +3206,8 @@ export default function App() {
               setSheet({ kind: 'profile', by: author })
             }
             onOpenNewPost={() => {
+              setEditingPostId(null);
+              postFileRef.current = null;
               setPostForm(createDefaultPostForm());
               setSheet({ kind: 'newpost' });
             }}
@@ -2883,14 +3408,22 @@ export default function App() {
         onChangePostForm={setPostForm}
         onPickPostFile={handlePickPostFile}
         onPublishPost={handlePublishPost}
+        postSubmitting={postSubmitting}
+        editingPostId={editingPostId}
         onAddComment={handleAddComment}
+        onDeleteComment={handleDeleteComment}
+        canModerateComments={canModeratePosts}
         onRespondNotification={handleRespondNotification}
         onChangeInviteForm={setInviteForm}
         onSendInvite={handleSendInvite}
         onShareToFriend={handleShareToFriend}
         onSubmitReport={handleSubmitReport}
         onOpenVideo={(id) => openProcedure(id, 'watch')}
-        onClose={() => setSheet(null)}
+        onClose={() => {
+          setEditingPostId(null);
+          postFileRef.current = null;
+          setSheet(null);
+        }}
       />
 
       {/* Toast */}

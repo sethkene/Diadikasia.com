@@ -65,6 +65,8 @@ export interface ProcedureVideo {
 }
 
 export interface CommentItem {
+  id?: number;
+  authorId?: string;
   name: string;
   text: string;
   ago: string;
@@ -72,6 +74,7 @@ export interface CommentItem {
 
 export interface ReelPost {
   id: number;
+  authorId?: string;
   kind: 'video' | 'photo' | 'practice';
   by: string;
   role: string;
@@ -90,7 +93,10 @@ export interface ReelPost {
   practiceClicks?: number;
   comments: CommentItem[];
   url?: string;
+  mediaPath?: string;
   isImage?: boolean;
+  isRemoved?: boolean;
+  createdAt?: string;
   vid?: number;
   tries?: number;
   revealed?: boolean;
