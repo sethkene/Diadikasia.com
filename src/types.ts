@@ -124,22 +124,72 @@ export interface PracticeMilestone {
 }
 
 export interface Friend {
+  id?: string;
+  friendshipId?: number;
   name: string;
   online: boolean;
   lastSeen?: string;
   role: string;
+  qualifications?: string;
 }
 
 export interface PersonCandidate {
+  id?: string;
   name: string;
   role: string;
+  qualifications?: string;
+}
+
+export interface FriendRequestItem {
+  id: number;
+  requesterId: string;
+  addresseeId: string;
+  userId: string;
+  name: string;
+  role: string;
+  qualifications?: string;
+  direction: 'incoming' | 'outgoing';
+  status: 'pending' | 'accepted' | 'declined';
+  createdAt: string;
 }
 
 export type ChatMessage =
-  | { me: boolean; type: 'text'; text: string }
-  | { me: boolean; type: 'remind'; vid: number }
-  | { me: boolean; type: 'post'; pid: number }
   | {
+      id?: number;
+      senderId?: string;
+      recipientId?: string;
+      createdAt?: string;
+      readAt?: string | null;
+      me: boolean;
+      type: 'text';
+      text: string;
+    }
+  | {
+      id?: number;
+      senderId?: string;
+      recipientId?: string;
+      createdAt?: string;
+      readAt?: string | null;
+      me: boolean;
+      type: 'remind';
+      vid: number;
+    }
+  | {
+      id?: number;
+      senderId?: string;
+      recipientId?: string;
+      createdAt?: string;
+      readAt?: string | null;
+      me: boolean;
+      type: 'post';
+      pid: number;
+    }
+  | {
+      id?: number;
+      senderId?: string;
+      recipientId?: string;
+      createdAt?: string;
+      readAt?: string | null;
       me: boolean;
       type: 'invite';
       vid: number;
@@ -150,11 +200,16 @@ export type ChatMessage =
 
 export interface NotificationItem {
   id: number;
+  recipientId?: string;
+  actorId?: string;
   type: 'invite' | 'req' | 'remind';
   from: string;
   vid?: number;
   when?: string;
   status: 'pending' | 'accepted' | 'declined' | 'done' | 'seen';
+  readAt?: string | null;
+  chatMessageId?: number;
+  createdAt?: string;
 }
 
 export type SubmissionStatus = 'pending' | 'ok' | 'chg' | 'rej';

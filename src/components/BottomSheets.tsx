@@ -9,9 +9,11 @@ import {
 import type {
   CommentItem,
   Friend,
+  FriendRequestItem,
   InviteForm,
   NewPostForm,
   NotificationItem,
+  PersonCandidate,
   ProcedureVideo,
   ReelPost,
   SheetState,
@@ -47,6 +49,12 @@ interface BottomSheetsProps {
   ) => Promise<void> | void;
   onDeleteComment?: (reelId: number, commentId: number) => Promise<void> | void;
   canModerateComments?: boolean;
+  incomingFriendRequests?: FriendRequestItem[];
+  outgoingFriendRequests?: FriendRequestItem[];
+  discoverPeople?: PersonCandidate[];
+  onAcceptFriendRequest?: (requestId: number) => void;
+  onDeclineFriendRequest?: (requestId: number) => void;
+  busyFriendIds?: Set<string>;
   onRespondNotification: (id: number, accept: boolean) => void;
   onChangeInviteForm: (next: InviteForm) => void;
   onSendInvite: () => void;
@@ -91,6 +99,12 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
   onAddComment,
   onDeleteComment,
   canModerateComments = false,
+  incomingFriendRequests = [],
+  outgoingFriendRequests = [],
+  discoverPeople = [],
+  onAcceptFriendRequest,
+  onDeclineFriendRequest,
+  busyFriendIds,
   onRespondNotification,
   onChangeInviteForm,
   onSendInvite,
@@ -201,6 +215,16 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
       const account = accounts.find(
         (a) => normalizeName(a.name) === targetKey,
       );
+      const fallbackPerson = !account
+        ? incomingFriendRequests.find(
+            (r) => normalizeName(r.name) === targetKey,
+          ) ||
+          friends.find((f) => normalizeName(f.name) === targetKey) ||
+          discoverPeople.find((p) => normalizeName(p.name) === targetKey) ||
+          outgoingFriendRequests.find(
+            (r) => normalizeName(r.name) === targetKey,
+          )
+        : undefined;
       const uploadedVideos = videos.filter(
         (v) => normalizeName(v.instructor) === targetKey,
       );
@@ -210,6 +234,7 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
 
       const displayName =
         account?.name ||
+        fallbackPerson?.name ||
         authorPosts[0]?.by ||
         sheet.by.split(',')[0].trim();
 
@@ -220,7 +245,11 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
         ? sheet.by.split(',').slice(1).join(',').trim()
         : '';
       const qualifications =
-        account?.qualifications || rawCredFromVideo || rawCredFromSheet || '';
+        account?.qualifications ||
+        fallbackPerson?.qualifications ||
+        rawCredFromVideo ||
+        rawCredFromSheet ||
+        '';
 
       const roleLabel =
         account?.role === 'instructor'
@@ -229,12 +258,17 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
           ? 'Clinical director'
           : account?.role === 'sub_admin'
           ? 'Clinical reviewer & staff'
-          : authorPosts[0]?.role ||
+          : fallbackPerson?.role === 'Clinical instructor'
+          ? 'Verified clinical instructor'
+          : fallbackPerson?.role ||
+            authorPosts[0]?.role ||
             (uploadedVideos.length > 0 ? 'Clinical instructor' : 'Learner');
 
       const isVerified = Boolean(
         account?.role === 'instructor' ||
           account?.role === 'admin' ||
+          fallbackPerson?.role === 'Clinical instructor' ||
+          fallbackPerson?.role === 'Clinical director' ||
           authorPosts.some((p) => p.verified) ||
           uploadedVideos.length > 0,
       );
@@ -622,70 +656,122 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
     }
 
     if (sheet.kind === 'notifications') {
+      const hasAny =
+        incomingFriendRequests.length > 0 || notifications.length > 0;
       return (
         <div>
           <h3 className="font-display font-bold text-base text-slate-900">
             Notifications
           </h3>
           <div className="mt-3 divide-y divide-slate-100 max-h-72 overflow-y-auto">
-            {notifications.length > 0 ? (
-              notifications.map((n) => {
-                const v = n.vid
-                  ? videos.find((x) => x.id === n.vid)
-                  : undefined;
-                return (
-                  <div key={n.id} className="py-3">
-                    <div className="text-sm text-slate-800">
-                      {n.type === 'req' && (
-                        <>
-                          <strong>{n.from}</strong> wants to be your friend.
-                        </>
-                      )}
-                      {n.type === 'invite' && (
-                        <>
-                          <strong>{n.from}</strong> invited you to study{' '}
-                          <strong>{v?.title}</strong>, {n.when}.
-                        </>
-                      )}
-                      {n.type === 'remind' && (
-                        <>
-                          <strong>{n.from}</strong> is reminding you to study{' '}
-                          <strong>{v?.title}</strong>.
-                        </>
+            {hasAny ? (
+              <>
+                {incomingFriendRequests.map((req) => {
+                  const isBusy = Boolean(busyFriendIds?.has(`req:${req.id}`));
+                  return (
+                    <div key={`freq-${req.id}`} className="py-3">
+                      <div className="text-sm text-slate-800">
+                        <strong>{req.name}</strong> wants to be your friend.
+                      </div>
+                      <div className="flex items-center gap-2 mt-2.5">
+                        {onAcceptFriendRequest && (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => onAcceptFriendRequest(req.id)}
+                            className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-xs font-semibold min-h-[38px]"
+                          >
+                            Accept
+                          </button>
+                        )}
+                        {onDeclineFriendRequest && (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => onDeclineFriendRequest(req.id)}
+                            className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-60 text-slate-800 text-xs font-semibold min-h-[38px]"
+                          >
+                            Decline
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {notifications.map((n) => {
+                  const v = n.vid
+                    ? videos.find((x) => x.id === n.vid)
+                    : undefined;
+                  return (
+                    <div key={n.id} className="py-3">
+                      <div className="text-sm text-slate-800">
+                        {n.type === 'req' && (
+                          <>
+                            <strong>{n.from}</strong> wants to be your friend.
+                          </>
+                        )}
+                        {n.type === 'invite' && (
+                          <>
+                            <strong>{n.from}</strong> invited you to study{' '}
+                            <strong>{v?.title}</strong>, {n.when}.
+                          </>
+                        )}
+                        {n.type === 'remind' && (
+                          <>
+                            <strong>{n.from}</strong> is reminding you to study{' '}
+                            <strong>{v?.title}</strong>.
+                          </>
+                        )}
+                      </div>
+
+                      {n.type === 'remind' ? (
+                        n.status === 'pending' || n.status === 'seen' ? (
+                          <div className="flex items-center gap-2 mt-2.5">
+                            <button
+                              type="button"
+                              onClick={() => onRespondNotification(n.id, true)}
+                              className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold min-h-[38px]"
+                            >
+                              Mark done
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-slate-500 mt-1">Done</div>
+                        )
+                      ) : n.status === 'pending' ? (
+                        <div className="flex items-center gap-2 mt-2.5">
+                          <button
+                            type="button"
+                            onClick={() => onRespondNotification(n.id, true)}
+                            className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold min-h-[38px]"
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onRespondNotification(n.id, false)}
+                            className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold min-h-[38px]"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-500 mt-1">
+                          {n.status === 'accepted'
+                            ? 'Accepted'
+                            : n.status === 'declined'
+                            ? 'Declined'
+                            : n.status === 'done'
+                            ? 'Done'
+                            : n.status === 'seen'
+                            ? 'Seen'
+                            : ''}
+                        </div>
                       )}
                     </div>
-
-                    {n.status === 'pending' ? (
-                      <div className="flex items-center gap-2 mt-2.5">
-                        <button
-                          type="button"
-                          onClick={() => onRespondNotification(n.id, true)}
-                          className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold min-h-[38px]"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onRespondNotification(n.id, false)}
-                          className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold min-h-[38px]"
-                        >
-                          Decline
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="text-xs text-slate-500 mt-1">
-                        {n.status === 'accepted'
-                          ? 'Accepted'
-                          : n.status === 'declined'
-                          ? 'Declined'
-                          : n.status === 'done'
-                          ? 'Added as a friend'
-                          : ''}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
+                  );
+                })}
+              </>
             ) : (
               <p className="text-sm text-slate-500 py-4">Nothing new.</p>
             )}

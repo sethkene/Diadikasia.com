@@ -45,11 +45,13 @@ import type {
   DetailTab,
   Discipline,
   Friend,
+  FriendRequestItem,
   InstructorApplication,
   InviteForm,
   MainTab,
   NewPostForm,
   NotificationItem,
+  PersonCandidate,
   PracticeMilestone,
   PracticeSession,
   ProcedureVideo,
@@ -132,6 +134,30 @@ import {
   setSavedProcedureInSupabase,
   upsertProcedureProgressInSupabase,
 } from './services/procedures';
+import {
+  cancelFriendRequestInSupabase,
+  fetchDiscoverPeopleFromSupabase,
+  fetchFriendshipsFromSupabase,
+  respondToFriendRequestInSupabase,
+  sendFriendRequestInSupabase,
+  subscribeToFriendshipsUpdates,
+} from './services/friends';
+import {
+  acceptStudyInviteInSupabase,
+  fetchAllChatsFromSupabase,
+  fetchConversationMessagesFromSupabase,
+  mapChatRowToMessage,
+  markConversationAsReadInSupabase,
+  sendChatMessageInSupabase,
+  subscribeToChatMessages,
+} from './services/chat';
+import {
+  fetchNotificationsFromSupabase,
+  updateNotificationStatusInSupabase,
+  markAllNotificationsAsReadInSupabase,
+  subscribeToNotifications,
+  mapNotificationRow,
+} from './services/notifications';
 
 const NAV_ITEMS: Array<{
   id: MainTab;
@@ -279,20 +305,52 @@ export default function App() {
   );
 
   const [friends, setFriends] = useState<Friend[]>(() =>
-    readStored(STORAGE_KEYS.friends, INITIAL_FRIENDS),
+    isSupabaseConfigured ? [] : readStored(STORAGE_KEYS.friends, INITIAL_FRIENDS),
+  );
+  const [discoverPeople, setDiscoverPeople] = useState<PersonCandidate[]>(() =>
+    isSupabaseConfigured ? [] : DISCOVER_PEOPLE,
+  );
+  const [incomingRequests, setIncomingRequests] = useState<FriendRequestItem[]>(
+    [],
+  );
+  const [outgoingRequests, setOutgoingRequests] = useState<FriendRequestItem[]>(
+    [],
+  );
+  const [friendsLoading, setFriendsLoading] = useState<boolean>(
+    isSupabaseConfigured,
+  );
+  const [friendsError, setFriendsError] = useState<string | null>(null);
+  const [discoverLoading, setDiscoverLoading] = useState<boolean>(
+    isSupabaseConfigured,
+  );
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [busyFriendIds, setBusyFriendIds] = useState<Set<string>>(
+    () => new Set(),
   );
   const [sentRequests, setSentRequests] = useState<string[]>(() =>
-    readStored(STORAGE_KEYS.sentRequests, []),
+    isSupabaseConfigured ? [] : readStored(STORAGE_KEYS.sentRequests, []),
   );
   const [chats, setChats] = useState<Record<string, ChatMessage[]>>(() =>
-    readStored(STORAGE_KEYS.chats, INITIAL_CHATS),
+    isSupabaseConfigured ? {} : readStored(STORAGE_KEYS.chats, INITIAL_CHATS),
   );
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>(() =>
-    readStored(STORAGE_KEYS.unreadCounts, INITIAL_UNREAD),
+    isSupabaseConfigured
+      ? {}
+      : readStored(STORAGE_KEYS.unreadCounts, INITIAL_UNREAD),
   );
   const [activeChat, setActiveChat] = useState<string | null>(null);
+  const [chatsLoading, setChatsLoading] = useState<boolean>(
+    isSupabaseConfigured,
+  );
+  const [chatsError, setChatsError] = useState<string | null>(null);
+  const [chatSending, setChatSending] = useState<boolean>(false);
+  const [busyChatMsgIds, setBusyChatMsgIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [notifications, setNotifications] = useState<NotificationItem[]>(() =>
-    readStored(STORAGE_KEYS.notifications, INITIAL_NOTIFICATIONS),
+    isSupabaseConfigured
+      ? []
+      : readStored(STORAGE_KEYS.notifications, INITIAL_NOTIFICATIONS),
   );
 
   const [submissionsQueue, setSubmissionsQueue] = useState<SubmissionItem[]>(() =>
@@ -324,6 +382,8 @@ export default function App() {
   const contributeFileRef = useRef<File | null>(null);
   const postFileRef = useRef<File | null>(null);
   const lastProfileRefreshRef = useRef<number>(0);
+  const lastDiscoverRefreshRef = useRef<number>(0);
+  const discoverRefreshInFlightRef = useRef<boolean>(false);
   const serverLikedProcIdsRef = useRef<Set<number>>(new Set());
   const serverLikedReelIdsRef = useRef<Set<number>>(new Set());
   const signalsLoadedRef = useRef<boolean>(false);
@@ -331,6 +391,15 @@ export default function App() {
   const filterRequestIdRef = useRef<number>(0);
   const userRef = useRef<UserProfile>(user);
   userRef.current = user;
+  const activeChatRef = useRef<string | null>(activeChat);
+  activeChatRef.current = activeChat;
+  const activeTabRef = useRef<MainTab>(activeTab);
+  activeTabRef.current = activeTab;
+  const friendsRef = useRef<Friend[]>(friends);
+  friendsRef.current = friends;
+  const chatsRef = useRef<Record<string, ChatMessage[]>>(chats);
+  chatsRef.current = chats;
+  const seenChatMsgIdsRef = useRef<Set<number>>(new Set());
 
   // Persist local procedures, study progress, and community state (demo mode only for backend-integrated tables)
   useEffect(() => {
@@ -374,21 +443,21 @@ export default function App() {
           STORAGE_KEYS.likedKeys,
           JSON.stringify(Array.from(likedKeys)),
         );
+        localStorage.setItem(STORAGE_KEYS.friends, JSON.stringify(friends));
+        localStorage.setItem(
+          STORAGE_KEYS.sentRequests,
+          JSON.stringify(sentRequests),
+        );
+        localStorage.setItem(STORAGE_KEYS.chats, JSON.stringify(chats));
+        localStorage.setItem(
+          STORAGE_KEYS.unreadCounts,
+          JSON.stringify(unreadCounts),
+        );
+        localStorage.setItem(
+          STORAGE_KEYS.notifications,
+          JSON.stringify(notifications),
+        );
       }
-      localStorage.setItem(STORAGE_KEYS.friends, JSON.stringify(friends));
-      localStorage.setItem(
-        STORAGE_KEYS.sentRequests,
-        JSON.stringify(sentRequests),
-      );
-      localStorage.setItem(STORAGE_KEYS.chats, JSON.stringify(chats));
-      localStorage.setItem(
-        STORAGE_KEYS.unreadCounts,
-        JSON.stringify(unreadCounts),
-      );
-      localStorage.setItem(
-        STORAGE_KEYS.notifications,
-        JSON.stringify(notifications),
-      );
     } catch {
       // ignore storage errors
     }
@@ -441,12 +510,118 @@ export default function App() {
     [],
   );
 
+  const syncChatIdsIntoRef = useCallback(
+    (chatMap: Record<string, ChatMessage[]>) => {
+      for (const list of Object.values(chatMap)) {
+        for (const msg of list) {
+          if (typeof msg.id === 'number') {
+            seenChatMsgIdsRef.current.add(msg.id);
+          }
+        }
+      }
+    },
+    [],
+  );
+
+  const refreshChatsState = useCallback(
+    async (
+      activeUserId: string,
+      currentFriends: Friend[],
+      showSpinner = false,
+    ) => {
+      if (!isSupabaseConfigured || !activeUserId) return;
+      if (showSpinner) setChatsLoading(true);
+      try {
+        const res = await fetchAllChatsFromSupabase(
+          activeUserId,
+          currentFriends,
+        );
+        if (res.error) {
+          setChatsError(res.error);
+          if (showSpinner) {
+            setChats({});
+            setUnreadCounts({});
+          }
+        } else {
+          setChatsError(null);
+          syncChatIdsIntoRef(res.chats);
+          setChats(res.chats);
+          setUnreadCounts(res.unreadCounts);
+        }
+      } finally {
+        if (showSpinner) setChatsLoading(false);
+      }
+    },
+    [syncChatIdsIntoRef],
+  );
+
+  const refreshFriendshipsState = useCallback(
+    async (activeUserId: string, showSpinner = false) => {
+      if (!isSupabaseConfigured || !activeUserId) return;
+      if (showSpinner) setFriendsLoading(true);
+      try {
+        const res = await fetchFriendshipsFromSupabase(activeUserId);
+        if (res.error) {
+          setFriendsError(res.error);
+          if (showSpinner) {
+            setFriends([]);
+            setIncomingRequests([]);
+            setOutgoingRequests([]);
+          }
+        } else {
+          setFriendsError(null);
+          setFriends(res.friends);
+          setIncomingRequests(res.incomingRequests);
+          setOutgoingRequests(res.outgoingRequests);
+          void refreshChatsState(activeUserId, res.friends, false);
+        }
+      } finally {
+        if (showSpinner) setFriendsLoading(false);
+      }
+    },
+    [refreshChatsState],
+  );
+
+  const refreshDiscoverPeopleState = useCallback(
+    async (activeUserId: string, showSpinner = false, force = false) => {
+      if (!isSupabaseConfigured || !activeUserId) return;
+      if (discoverRefreshInFlightRef.current) return;
+      const now = Date.now();
+      if (!force && now - lastDiscoverRefreshRef.current < 15000) {
+        return;
+      }
+
+      discoverRefreshInFlightRef.current = true;
+      if (showSpinner) setDiscoverLoading(true);
+      try {
+        const res = await fetchDiscoverPeopleFromSupabase(activeUserId);
+        if (res.error) {
+          setDiscoverError(res.error);
+          if (showSpinner) {
+            setDiscoverPeople([]);
+          }
+        } else {
+          lastDiscoverRefreshRef.current = Date.now();
+          setDiscoverError(null);
+          setDiscoverPeople(res.people);
+        }
+      } finally {
+        discoverRefreshInFlightRef.current = false;
+        if (showSpinner) setDiscoverLoading(false);
+      }
+    },
+    [],
+  );
+
   const syncRoleScopedData = useCallback(
     async (activeUser: UserProfile) => {
       if (!isSupabaseConfigured || !activeUser.id) return;
 
       setProceduresLoading(true);
       setReelsLoading(true);
+      setFriendsLoading(true);
+      setDiscoverLoading(true);
+      setChatsLoading(true);
 
       const isAdminUser = activeUser.role === 'admin';
       const canSeeSubmissions =
@@ -473,6 +648,9 @@ export default function App() {
           reelsRes,
           reelLikesRes,
           signalsRes,
+          friendshipsRes,
+          discoverRes,
+          notifsRes,
         ] = await Promise.all([
           fetchDirectoryProfiles(isAdminUser),
           fetchInstructorApplications(),
@@ -496,12 +674,21 @@ export default function App() {
           fetchVisibleReelsPage({ offset: 0, limit: 20 }),
           fetchMyReelLikes(activeUser.id),
           fetchMyReelSignals(activeUser.id),
+          fetchFriendshipsFromSupabase(activeUser.id),
+          fetchDiscoverPeopleFromSupabase(activeUser.id),
+          fetchNotificationsFromSupabase(activeUser.id),
         ]);
 
-        const milestonesRes = await fetchPracticeMilestonesFromSupabase(
-          directory,
-          procsRes.procedures,
-        );
+        const [milestonesRes, chatsRes] = await Promise.all([
+          fetchPracticeMilestonesFromSupabase(directory, procsRes.procedures),
+          !friendshipsRes.error
+            ? fetchAllChatsFromSupabase(activeUser.id, friendshipsRes.friends)
+            : Promise.resolve({
+                chats: {} as Record<string, ChatMessage[]>,
+                unreadCounts: {} as Record<string, number>,
+                error: undefined as string | undefined,
+              }),
+        ]);
 
         setAccounts(directory);
         if (!appsRes.error) {
@@ -593,12 +780,53 @@ export default function App() {
         if (!milestonesRes.error) {
           setMilestones(milestonesRes.milestones);
         }
+
+        if (friendshipsRes.error) {
+          setFriendsError(friendshipsRes.error);
+          setFriends([]);
+          setIncomingRequests([]);
+          setOutgoingRequests([]);
+        } else {
+          setFriendsError(null);
+          setFriends(friendshipsRes.friends);
+          setIncomingRequests(friendshipsRes.incomingRequests);
+          setOutgoingRequests(friendshipsRes.outgoingRequests);
+        }
+
+        if (chatsRes.error) {
+          setChatsError(chatsRes.error);
+          setChats({});
+          setUnreadCounts({});
+        } else {
+          setChatsError(null);
+          syncChatIdsIntoRef(chatsRes.chats);
+          setChats(chatsRes.chats);
+          setUnreadCounts(chatsRes.unreadCounts);
+        }
+
+        if (discoverRes.error) {
+          setDiscoverError(discoverRes.error);
+          setDiscoverPeople([]);
+        } else {
+          lastDiscoverRefreshRef.current = Date.now();
+          setDiscoverError(null);
+          setDiscoverPeople(discoverRes.people);
+        }
+
+        if (!notifsRes.error) {
+          setNotifications(notifsRes.notifications);
+        } else {
+          setNotifications([]);
+        }
       } finally {
         setProceduresLoading(false);
         setReelsLoading(false);
+        setFriendsLoading(false);
+        setDiscoverLoading(false);
+        setChatsLoading(false);
       }
     },
-    [applyLikedBaseline, applyReelLikedBaseline],
+    [applyLikedBaseline, applyReelLikedBaseline, syncChatIdsIntoRef],
   );
 
   const refreshAuthoritativeProfile = useCallback(
@@ -746,6 +974,24 @@ export default function App() {
       serverLikedProcIdsRef.current = new Set();
       serverLikedReelIdsRef.current = new Set();
       setLikedKeys(new Set());
+      setFriends([]);
+      setDiscoverPeople([]);
+      lastDiscoverRefreshRef.current = 0;
+      discoverRefreshInFlightRef.current = false;
+      setIncomingRequests([]);
+      setOutgoingRequests([]);
+      setFriendsError(null);
+      setDiscoverError(null);
+      setBusyFriendIds(new Set());
+      setSentRequests([]);
+      setChats({});
+      setUnreadCounts({});
+      setActiveChat(null);
+      setChatsError(null);
+      setChatSending(false);
+      setBusyChatMsgIds(new Set());
+      seenChatMsgIdsRef.current.clear();
+      setNotifications([]);
       if (notice) {
         setAuthNotice(notice);
       }
@@ -1045,6 +1291,171 @@ export default function App() {
     });
   }, [screen, user.id, user.role, user.permissions?.canModeratePosts]);
 
+  // Subscribe to Realtime incoming friend requests and friendship status updates
+  useEffect(() => {
+    if (screen !== 'app' || !isSupabaseConfigured || !user.id) return;
+    const currentUserId = user.id;
+
+    return subscribeToFriendshipsUpdates(currentUserId, () => {
+      void refreshFriendshipsState(currentUserId, false);
+    });
+  }, [screen, user.id, refreshFriendshipsState]);
+
+  // Refresh Discover People from get_public_directory() when opening/revisiting Friends tab
+  useEffect(() => {
+    if (
+      screen !== 'app' ||
+      activeTab !== 'friends' ||
+      !isSupabaseConfigured ||
+      !user.id
+    ) {
+      return;
+    }
+    void refreshDiscoverPeopleState(user.id, false, false);
+  }, [screen, activeTab, user.id, refreshDiscoverPeopleState]);
+
+  // Subscribe to Realtime chat messages & read-status updates
+  useEffect(() => {
+    if (screen !== 'app' || !isSupabaseConfigured || !user.id) return;
+    const currentUserId = user.id;
+
+    return subscribeToChatMessages(currentUserId, {
+      onInsert: (row) => {
+        const otherUserId =
+          row.sender_id === currentUserId ? row.recipient_id : row.sender_id;
+        const friend = friendsRef.current.find((f) => f.id === otherUserId);
+        if (!friend) {
+          void refreshFriendshipsState(currentUserId, false);
+          return;
+        }
+
+        const mapped = mapChatRowToMessage(row, currentUserId);
+        if (!mapped) return;
+
+        const alreadySeen = seenChatMsgIdsRef.current.has(row.id);
+        seenChatMsgIdsRef.current.add(row.id);
+
+        setChats((prev) => {
+          const list = prev[friend.name] || [];
+          if (list.some((m) => m.id === mapped.id)) return prev;
+          return {
+            ...prev,
+            [friend.name]: [...list, mapped],
+          };
+        });
+
+        if (row.recipient_id === currentUserId && !row.read_at) {
+          const isOpenThread =
+            activeTabRef.current === 'friends' &&
+            activeChatRef.current === friend.name;
+          if (isOpenThread) {
+            void markConversationAsReadInSupabase(
+              currentUserId,
+              otherUserId,
+            ).then(({ updatedIds, readAt }) => {
+              if (updatedIds.length > 0 && readAt) {
+                const updatedSet = new Set(updatedIds);
+                setChats((prev) => {
+                  const list = prev[friend.name];
+                  if (!list) return prev;
+                  return {
+                    ...prev,
+                    [friend.name]: list.map((m) =>
+                      m.id && updatedSet.has(m.id) ? { ...m, readAt } : m,
+                    ),
+                  };
+                });
+              }
+            });
+          } else if (!alreadySeen) {
+            setUnreadCounts((prev) => ({
+              ...prev,
+              [friend.name]: (prev[friend.name] || 0) + 1,
+            }));
+          }
+        }
+      },
+      onUpdate: (row) => {
+        const otherUserId =
+          row.sender_id === currentUserId ? row.recipient_id : row.sender_id;
+        const friend = friendsRef.current.find((f) => f.id === otherUserId);
+        if (!friend) return;
+
+        setChats((prev) => {
+          const list = prev[friend.name];
+          if (!list) return prev;
+          let changed = false;
+          const nextList = list.map((m) => {
+            if (m.id !== row.id) return m;
+            changed = true;
+            const updated: ChatMessage = {
+              ...m,
+              readAt: row.read_at,
+            };
+            if (updated.type === 'invite' && row.invite_status) {
+              return { ...updated, status: row.invite_status };
+            }
+            return updated;
+          });
+          if (!changed) return prev;
+          return {
+            ...prev,
+            [friend.name]: nextList,
+          };
+        });
+
+        if (row.recipient_id === currentUserId) {
+          const currentList = chatsRef.current[friend.name] || [];
+          const nextUnread = currentList.filter((m) => {
+            if (m.me) return false;
+            if (m.id === row.id) return !row.read_at;
+            return !m.readAt;
+          }).length;
+          setUnreadCounts((uPrev) => ({
+            ...uPrev,
+            [friend.name]: nextUnread,
+          }));
+        }
+      },
+    });
+  }, [screen, user.id, refreshFriendshipsState]);
+
+  // Mark all notifications as read when opening notifications sheet
+  useEffect(() => {
+    if (sheet?.kind === 'notifications' && isSupabaseConfigured && user.id) {
+      void markAllNotificationsAsReadInSupabase(user.id).then(() => {
+        setNotifications((prev) =>
+          prev.map((n) => (n.readAt ? n : { ...n, readAt: new Date().toISOString() })),
+        );
+      });
+    }
+  }, [sheet?.kind, user.id]);
+
+  // Subscribe to Realtime notifications updates
+  useEffect(() => {
+    if (screen !== 'app' || !isSupabaseConfigured || !user.id) return;
+    const currentUserId = user.id;
+
+    return subscribeToNotifications(currentUserId, {
+      onInsert: (row) => {
+        const mapped = mapNotificationRow(row);
+        setNotifications((prev) => {
+          if (prev.some((n) => n.id === mapped.id)) return prev;
+          return [mapped, ...prev];
+        });
+      },
+      onUpdate: (row) => {
+        const mapped = mapNotificationRow(row);
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === mapped.id ? mapped : n)),
+        );
+      },
+      onDelete: (notificationId) => {
+        setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+      },
+    });
+  }, [screen, user.id]);
+
   // Persist recommender reel signals to Supabase (debounced)
   useEffect(() => {
     if (
@@ -1197,6 +1608,17 @@ export default function App() {
       serverLikedProcIdsRef.current = new Set();
       serverLikedReelIdsRef.current = new Set();
       setLikedKeys(new Set());
+      setFriends([]);
+      setDiscoverPeople([]);
+      setIncomingRequests([]);
+      setOutgoingRequests([]);
+      setFriendsError(null);
+      setDiscoverError(null);
+      setBusyFriendIds(new Set());
+      setSentRequests([]);
+      setChats({});
+      setUnreadCounts({});
+      setNotifications([]);
     }
     setScreen('auth');
     setAuthMode('in');
@@ -1245,10 +1667,9 @@ export default function App() {
 
   const pendingNotifCount = useMemo(
     () =>
-      notifications.filter(
-        (n) => n.status === 'pending' && n.type !== 'remind',
-      ).length,
-    [notifications],
+      incomingRequests.length +
+      notifications.filter((n) => !n.readAt).length,
+    [incomingRequests.length, notifications],
   );
 
   const boostAffinity = useCallback(
@@ -2664,27 +3085,254 @@ export default function App() {
     );
   };
 
-  const handleSendMessage = (friendName: string, text: string) => {
-    const friend = friends.find((f) => f.name === friendName);
-    setChats((prev) => ({
-      ...prev,
-      [friendName]: [...(prev[friendName] || []), { me: true, type: 'text', text }],
-    }));
+  const setFriendBusy = (key: string, busy: boolean) => {
+    setBusyFriendIds((prev) => {
+      const next = new Set(prev);
+      if (busy) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
 
-    if (friend?.online) {
-      window.setTimeout(() => {
-        setChats((prev) => ({
-          ...prev,
-          [friendName]: [
-            ...(prev[friendName] || []),
-            { me: false, type: 'text', text: 'Got it, thanks.' },
-          ],
-        }));
-      }, 1500);
+  const handleAddFriend = async (name: string, person?: PersonCandidate) => {
+    if (!isSupabaseConfigured) {
+      setSentRequests((prev) => (prev.includes(name) ? prev : [...prev, name]));
+      showToast('Friend request sent.');
+      return;
+    }
+
+    if (!user.id || !person?.id) {
+      showToast('Sign in and select a valid user to send a request.');
+      return;
+    }
+
+    const busyKey = `add:${person.id}`;
+    if (busyFriendIds.has(busyKey)) return;
+    setFriendBusy(busyKey, true);
+    try {
+      const { request, error } = await sendFriendRequestInSupabase(
+        user.id,
+        person.id,
+      );
+      if (error || !request) {
+        showToast(error || 'Unable to send friend request.');
+        void refreshFriendshipsState(user.id, false);
+        return;
+      }
+      setOutgoingRequests((prev) =>
+        prev.some((r) => r.id === request.id) ? prev : [request, ...prev],
+      );
+      showToast('Friend request sent.');
+    } finally {
+      setFriendBusy(busyKey, false);
     }
   };
 
-  const handleSendInvite = () => {
+  const handleAcceptFriendRequest = async (requestId: number) => {
+    if (!isSupabaseConfigured || !user.id) return;
+    const busyKey = `req:${requestId}`;
+    if (busyFriendIds.has(busyKey)) return;
+    setFriendBusy(busyKey, true);
+    try {
+      const { error } = await respondToFriendRequestInSupabase(
+        requestId,
+        user.id,
+        true,
+      );
+      if (error) {
+        showToast(error);
+        void refreshFriendshipsState(user.id, false);
+        return;
+      }
+      await refreshFriendshipsState(user.id, false);
+      showToast('Friend request accepted.');
+    } finally {
+      setFriendBusy(busyKey, false);
+    }
+  };
+
+  const handleDeclineFriendRequest = async (requestId: number) => {
+    if (!isSupabaseConfigured || !user.id) return;
+    const busyKey = `req:${requestId}`;
+    if (busyFriendIds.has(busyKey)) return;
+    setFriendBusy(busyKey, true);
+    try {
+      const { error } = await respondToFriendRequestInSupabase(
+        requestId,
+        user.id,
+        false,
+      );
+      if (error) {
+        showToast(error);
+        void refreshFriendshipsState(user.id, false);
+        return;
+      }
+      setIncomingRequests((prev) => prev.filter((r) => r.id !== requestId));
+      showToast('Friend request declined.');
+    } finally {
+      setFriendBusy(busyKey, false);
+    }
+  };
+
+  const handleCancelFriendRequest = async (requestId: number) => {
+    if (!isSupabaseConfigured || !user.id) return;
+    const busyKey = `req:${requestId}`;
+    if (busyFriendIds.has(busyKey)) return;
+    setFriendBusy(busyKey, true);
+    try {
+      const { error } = await cancelFriendRequestInSupabase(requestId, user.id);
+      if (error) {
+        showToast(error);
+        void refreshFriendshipsState(user.id, false);
+        return;
+      }
+      setOutgoingRequests((prev) => prev.filter((r) => r.id !== requestId));
+      showToast('Friend request cancelled.');
+    } finally {
+      setFriendBusy(busyKey, false);
+    }
+  };
+
+  const handleSelectChat = async (friendName: string | null) => {
+    setActiveChat(friendName);
+    if (!friendName) return;
+
+    setUnreadCounts((prev) => ({ ...prev, [friendName]: 0 }));
+
+    if (!isSupabaseConfigured || !user.id) return;
+    const friend = friends.find((f) => f.name === friendName);
+    if (!friend?.id) return;
+
+    if (chatsError) {
+      const conv = await fetchConversationMessagesFromSupabase(
+        user.id,
+        friend.id,
+      );
+      if (!conv.error) {
+        setChatsError(null);
+        for (const msg of conv.messages) {
+          if (typeof msg.id === 'number') {
+            seenChatMsgIdsRef.current.add(msg.id);
+          }
+        }
+        setChats((prev) => ({ ...prev, [friendName]: conv.messages }));
+      }
+    }
+
+    const { updatedIds, readAt } = await markConversationAsReadInSupabase(
+      user.id,
+      friend.id,
+    );
+    if (updatedIds.length > 0 && readAt) {
+      const updatedSet = new Set(updatedIds);
+      setChats((prev) => {
+        const list = prev[friendName];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [friendName]: list.map((m) =>
+            m.id && updatedSet.has(m.id) ? { ...m, readAt } : m,
+          ),
+        };
+      });
+    }
+  };
+
+  const handleRetryChat = async (friendName: string) => {
+    if (!isSupabaseConfigured || !user.id) return;
+    const friend = friends.find((f) => f.name === friendName);
+    if (!friend?.id) {
+      await refreshChatsState(user.id, friends, true);
+      return;
+    }
+    setChatsLoading(true);
+    try {
+      const res = await fetchConversationMessagesFromSupabase(
+        user.id,
+        friend.id,
+      );
+      if (res.error) {
+        setChatsError(res.error);
+      } else {
+        setChatsError(null);
+        for (const msg of res.messages) {
+          if (typeof msg.id === 'number') {
+            seenChatMsgIdsRef.current.add(msg.id);
+          }
+        }
+        setChats((prev) => ({ ...prev, [friendName]: res.messages }));
+        setUnreadCounts((prev) => ({ ...prev, [friendName]: res.unreadCount }));
+      }
+    } finally {
+      setChatsLoading(false);
+    }
+  };
+
+  const handleSendMessage = async (
+    friendName: string,
+    text: string,
+  ): Promise<boolean> => {
+    const friend = friends.find((f) => f.name === friendName);
+
+    if (!isSupabaseConfigured) {
+      setChats((prev) => ({
+        ...prev,
+        [friendName]: [
+          ...(prev[friendName] || []),
+          { me: true, type: 'text', text },
+        ],
+      }));
+
+      if (friend?.online) {
+        window.setTimeout(() => {
+          setChats((prev) => ({
+            ...prev,
+            [friendName]: [
+              ...(prev[friendName] || []),
+              { me: false, type: 'text', text: 'Got it, thanks.' },
+            ],
+          }));
+        }, 1500);
+      }
+      return true;
+    }
+
+    if (!user.id || !friend?.id) {
+      showToast('You can only send messages to confirmed friends.');
+      return false;
+    }
+
+    setChatSending(true);
+    try {
+      const { message, error } = await sendChatMessageInSupabase({
+        senderId: user.id,
+        recipientId: friend.id,
+        msgType: 'text',
+        body: text,
+      });
+      if (error || !message) {
+        showToast(error || 'Unable to send message.');
+        return false;
+      }
+
+      if (typeof message.id === 'number') {
+        seenChatMsgIdsRef.current.add(message.id);
+      }
+      setChats((prev) => {
+        const list = prev[friendName] || [];
+        if (message.id && list.some((m) => m.id === message.id)) return prev;
+        return {
+          ...prev,
+          [friendName]: [...list, message],
+        };
+      });
+      return true;
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  const handleSendInvite = async () => {
     if (!inviteForm.when) {
       setInviteForm((prev) => ({
         ...prev,
@@ -2702,105 +3350,311 @@ export default function App() {
       minute: '2-digit',
     });
 
-    const inviteMsg: ChatMessage = {
-      me: true,
-      type: 'invite',
-      vid: Number(inviteForm.vid),
-      when: formattedWhen,
-      note: inviteForm.note,
-      status: 'pending',
-    };
+    if (!isSupabaseConfigured) {
+      const inviteMsg: ChatMessage = {
+        me: true,
+        type: 'invite',
+        vid: Number(inviteForm.vid),
+        when: formattedWhen,
+        note: inviteForm.note,
+        status: 'pending',
+      };
 
-    setChats((prev) => ({
-      ...prev,
-      [activeChat]: [...(prev[activeChat] || []), inviteMsg],
-    }));
+      setChats((prev) => ({
+        ...prev,
+        [activeChat]: [...(prev[activeChat] || []), inviteMsg],
+      }));
+      setSheet(null);
+      showToast(
+        friend?.online ? 'Invite sent.' : 'Invite sent as a notification.',
+      );
+
+      if (friend?.online) {
+        const targetFriendName = activeChat;
+        window.setTimeout(() => {
+          setChats((prev) => {
+            const list = [...(prev[targetFriendName] || [])];
+            const updated = list.map((m) =>
+              m === inviteMsg ? { ...m, status: 'accepted' as const } : m,
+            );
+            return {
+              ...prev,
+              [targetFriendName]: [
+                ...updated,
+                { me: false, type: 'text', text: 'Accepted. I’ll be there.' },
+              ],
+            };
+          });
+        }, 2000);
+      }
+      return;
+    }
+
+    if (!user.id || !friend?.id) {
+      setInviteForm((prev) => ({
+        ...prev,
+        err: 'You can only send study invites to confirmed friends.',
+      }));
+      return;
+    }
+
+    const targetFriendName = activeChat;
+    const { message, error } = await sendChatMessageInSupabase({
+      senderId: user.id,
+      recipientId: friend.id,
+      msgType: 'invite',
+      procedureId: Number(inviteForm.vid),
+      scheduledFor: formattedWhen,
+      body: inviteForm.note,
+    });
+
+    if (error || !message) {
+      setInviteForm((prev) => ({
+        ...prev,
+        err: error || 'Unable to send study invite.',
+      }));
+      return;
+    }
+
+    if (typeof message.id === 'number') {
+      seenChatMsgIdsRef.current.add(message.id);
+    }
+    setChats((prev) => {
+      const list = prev[targetFriendName] || [];
+      if (message.id && list.some((m) => m.id === message.id)) return prev;
+      return {
+        ...prev,
+        [targetFriendName]: [...list, message],
+      };
+    });
     setSheet(null);
-    showToast(
-      friend?.online ? 'Invite sent.' : 'Invite sent as a notification.',
-    );
+    showToast('Study invite sent.');
+  };
 
-    if (friend?.online) {
-      const targetFriendName = activeChat;
-      window.setTimeout(() => {
-        setChats((prev) => {
-          const list = [...(prev[targetFriendName] || [])];
-          const updated = list.map((m) =>
-            m === inviteMsg ? { ...m, status: 'accepted' as const } : m,
-          );
-          return {
-            ...prev,
-            [targetFriendName]: [
-              ...updated,
-              { me: false, type: 'text', text: 'Accepted. I’ll be there.' },
-            ],
-          };
-        });
-      }, 2000);
+  const handleAcceptChatInvite = async (
+    friendName: string,
+    messageId: number,
+  ) => {
+    if (!isSupabaseConfigured || !user.id) return;
+    if (busyChatMsgIds.has(messageId)) return;
+    setBusyChatMsgIds((prev) => {
+      const next = new Set(prev);
+      next.add(messageId);
+      return next;
+    });
+    try {
+      const { readAt, error } = await acceptStudyInviteInSupabase(
+        messageId,
+        user.id,
+      );
+      if (error) {
+        showToast(error);
+        return;
+      }
+      setChats((prev) => {
+        const list = prev[friendName];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [friendName]: list.map((m) =>
+            m.id === messageId && m.type === 'invite'
+              ? { ...m, status: 'accepted', readAt: readAt || m.readAt }
+              : m,
+          ),
+        };
+      });
+      showToast('Study invite accepted.');
+    } finally {
+      setBusyChatMsgIds((prev) => {
+        const next = new Set(prev);
+        next.delete(messageId);
+        return next;
+      });
     }
   };
 
-  const handleSendReminder = (friendName: string, messageIndex: number) => {
+  const handleSendReminder = async (
+    friendName: string,
+    messageIndex: number,
+  ) => {
     const friend = friends.find((f) => f.name === friendName);
     const targetMsg = (chats[friendName] || [])[messageIndex];
     if (!targetMsg || targetMsg.type !== 'invite') return;
 
-    setChats((prev) => ({
-      ...prev,
-      [friendName]: [
-        ...(prev[friendName] || []),
-        { me: true, type: 'remind', vid: targetMsg.vid },
-      ],
-    }));
-    showToast(
-      friend?.online ? 'Reminder sent.' : 'Reminder sent as a notification.',
-    );
+    if (!isSupabaseConfigured) {
+      setChats((prev) => ({
+        ...prev,
+        [friendName]: [
+          ...(prev[friendName] || []),
+          { me: true, type: 'remind', vid: targetMsg.vid },
+        ],
+      }));
+      showToast(
+        friend?.online ? 'Reminder sent.' : 'Reminder sent as a notification.',
+      );
+      return;
+    }
+
+    if (!user.id || !friend?.id) {
+      showToast('Unable to send reminder.');
+      return;
+    }
+
+    const { message, error } = await sendChatMessageInSupabase({
+      senderId: user.id,
+      recipientId: friend.id,
+      msgType: 'remind',
+      procedureId: targetMsg.vid,
+    });
+    if (error || !message) {
+      showToast(error || 'Unable to send reminder.');
+      return;
+    }
+
+    if (typeof message.id === 'number') {
+      seenChatMsgIdsRef.current.add(message.id);
+    }
+    setChats((prev) => {
+      const list = prev[friendName] || [];
+      if (message.id && list.some((m) => m.id === message.id)) return prev;
+      return {
+        ...prev,
+        [friendName]: [...list, message],
+      };
+    });
+    showToast('Reminder sent.');
   };
 
-  const handleRespondNotification = (id: number, accept: boolean) => {
+  const handleRespondNotification = async (id: number, accept: boolean) => {
     const target = notifications.find((n) => n.id === id);
     if (!target) return;
 
+    if (!isSupabaseConfigured) {
+      setNotifications((prev) =>
+        prev.map((n) => {
+          if (n.id !== id) return n;
+          if (!accept) return { ...n, status: 'declined' };
+          return {
+            ...n,
+            status:
+              n.type === 'req'
+                ? 'done'
+                : n.type === 'remind'
+                ? 'done'
+                : 'accepted',
+          };
+        }),
+      );
+
+      if (accept && target.type === 'req') {
+        setFriends((prev) =>
+          prev.some((f) => f.name === target.from)
+            ? prev
+            : [
+                ...prev,
+                {
+                  name: target.from,
+                  online: true,
+                  role: 'Clinical instructor',
+                },
+              ],
+        );
+      } else if (accept && target.type === 'invite') {
+        setChats((prev) => ({
+          ...prev,
+          [target.from]: [
+            ...(prev[target.from] || []),
+            { me: true, type: 'text', text: 'Accepted. See you then.' },
+          ],
+        }));
+      }
+      return;
+    }
+
+    if (!user.id) return;
+
+    let nextStatus: 'accepted' | 'declined' | 'done' | 'seen' = 'accepted';
+    if (target.type === 'remind') {
+      nextStatus = 'done';
+    } else if (target.type === 'invite') {
+      nextStatus = accept ? 'accepted' : 'declined';
+    } else {
+      nextStatus = accept ? 'done' : 'declined';
+    }
+
+    const { readAt, error } = await updateNotificationStatusInSupabase(
+      id,
+      user.id,
+      nextStatus,
+    );
+    if (error) {
+      showToast(error);
+      return;
+    }
+
     setNotifications((prev) =>
-      prev.map((n) => {
-        if (n.id !== id) return n;
-        if (!accept) return { ...n, status: 'declined' };
-        return { ...n, status: n.type === 'req' ? 'done' : 'accepted' };
-      }),
+      prev.map((n) =>
+        n.id === id
+          ? {
+              ...n,
+              status: nextStatus,
+              readAt: readAt !== undefined ? readAt : new Date().toISOString(),
+            }
+          : n,
+      ),
     );
 
-    if (accept && target.type === 'req') {
-      setFriends((prev) =>
-        prev.some((f) => f.name === target.from)
-          ? prev
-          : [
-              ...prev,
-              {
-                name: target.from,
-                online: true,
-                role: 'Clinical instructor',
-              },
-            ],
-      );
-    } else if (accept && target.type === 'invite') {
-      setChats((prev) => ({
-        ...prev,
-        [target.from]: [
-          ...(prev[target.from] || []),
-          { me: true, type: 'text', text: 'Accepted. See you then.' },
-        ],
-      }));
+    if (target.type === 'invite') {
+      showToast(accept ? 'Study invite accepted.' : 'Study invite declined.');
+    } else if (target.type === 'remind') {
+      showToast('Reminder marked as done.');
+    } else {
+      showToast('Notification updated.');
     }
   };
 
-  const handleShareToFriend = (friendName: string, postId: number) => {
-    setChats((prev) => ({
-      ...prev,
-      [friendName]: [
-        ...(prev[friendName] || []),
-        { me: true, type: 'post', pid: postId },
-      ],
-    }));
+  const handleShareToFriend = async (friendName: string, postId: number) => {
+    if (!isSupabaseConfigured) {
+      setChats((prev) => ({
+        ...prev,
+        [friendName]: [
+          ...(prev[friendName] || []),
+          { me: true, type: 'post', pid: postId },
+        ],
+      }));
+      setSheet(null);
+      showToast(`Sent to ${friendName.split(' ')[0]}.`);
+      return;
+    }
+
+    const friend = friends.find((f) => f.name === friendName);
+    if (!user.id || !friend?.id) {
+      showToast('You can only share reels with confirmed friends.');
+      return;
+    }
+
+    const { message, error } = await sendChatMessageInSupabase({
+      senderId: user.id,
+      recipientId: friend.id,
+      msgType: 'post',
+      reelId: postId,
+    });
+    if (error || !message) {
+      showToast(error || 'Unable to share reel.');
+      return;
+    }
+
+    if (typeof message.id === 'number') {
+      seenChatMsgIdsRef.current.add(message.id);
+    }
+    setChats((prev) => {
+      const list = prev[friendName] || [];
+      if (message.id && list.some((m) => m.id === message.id)) return prev;
+      return {
+        ...prev,
+        [friendName]: [...list, message],
+      };
+    });
     setSheet(null);
     showToast(`Sent to ${friendName.split(' ')[0]}.`);
   };
@@ -3221,25 +4075,43 @@ export default function App() {
         {activeTab === 'friends' && (
           <FriendsView
             friends={friends}
-            discoverPeople={DISCOVER_PEOPLE}
+            discoverPeople={discoverPeople}
             sentRequests={sentRequests}
+            incomingRequests={incomingRequests}
+            outgoingRequests={outgoingRequests}
+            loading={friendsLoading}
+            error={friendsError}
+            onRetry={() => {
+              if (user.id) void refreshFriendshipsState(user.id, true);
+            }}
+            discoverLoading={discoverLoading}
+            discoverError={discoverError}
+            onRetryDiscover={() => {
+              if (user.id) void refreshDiscoverPeopleState(user.id, true, true);
+            }}
+            busyIds={busyFriendIds}
             chats={chats}
             unreadCounts={unreadCounts}
+            chatLoading={chatsLoading}
+            chatError={chatsError}
+            onRetryChat={(name) => {
+              void handleRetryChat(name);
+            }}
+            chatSending={chatSending}
+            busyChatMsgIds={busyChatMsgIds}
+            onAcceptInvite={(name, msgId) => {
+              void handleAcceptChatInvite(name, msgId);
+            }}
             videos={videos}
             posts={posts}
             activeChat={activeChat}
             onSelectChat={(name) => {
-              setActiveChat(name);
-              if (name) {
-                setUnreadCounts((prev) => ({ ...prev, [name]: 0 }));
-              }
+              void handleSelectChat(name);
             }}
-            onAddFriend={(name) => {
-              setSentRequests((prev) =>
-                prev.includes(name) ? prev : [...prev, name],
-              );
-              showToast('Friend request sent.');
-            }}
+            onAddFriend={handleAddFriend}
+            onAcceptRequest={handleAcceptFriendRequest}
+            onDeclineRequest={handleDeclineFriendRequest}
+            onCancelRequest={handleCancelFriendRequest}
             onCopyInviteLink={handleCopyInviteLink}
             onSendMessage={handleSendMessage}
             onOpenStudyInvite={() => {
@@ -3413,6 +4285,12 @@ export default function App() {
         onAddComment={handleAddComment}
         onDeleteComment={handleDeleteComment}
         canModerateComments={canModeratePosts}
+        incomingFriendRequests={incomingRequests}
+        outgoingFriendRequests={outgoingRequests}
+        discoverPeople={discoverPeople}
+        onAcceptFriendRequest={handleAcceptFriendRequest}
+        onDeclineFriendRequest={handleDeclineFriendRequest}
+        busyFriendIds={busyFriendIds}
         onRespondNotification={handleRespondNotification}
         onChangeInviteForm={setInviteForm}
         onSendInvite={handleSendInvite}
