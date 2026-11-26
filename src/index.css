@@ -80,10 +80,23 @@
   animation: heartPop 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes sp {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-sp {
+  animation: sp 5s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  .animate-sp {
+    animation: none;
   }
 }

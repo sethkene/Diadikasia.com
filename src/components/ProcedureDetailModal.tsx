@@ -137,92 +137,22 @@ export const ProcedureDetailModal: React.FC<ProcedureDetailModalProps> = ({
     Math.floor((previewProgress / 100) * video.steps.length),
   );
 
-  const renderSequenceStage = () => {
-    const steps = video.steps;
+  const renderSimulationStage = () => {
     return (
-      <div className="rounded-2xl bg-slate-900 text-white p-4 sm:p-5 border border-slate-800">
-        <div className="flex items-center justify-between gap-2 mb-4">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-teal-300">
-              Clinical Sequence Map
-            </div>
-            <div className="text-xs text-slate-300 mt-0.5">
-              {practice.part === 1 && 'Arrange each phase in clinical sequence'}
-              {practice.part === 2 && 'Identify the immediate next step'}
-              {practice.part === 3 && 'Spot the missing step in the pathway'}
-              {practice.part === 4 && 'Sequence review complete'}
-            </div>
-          </div>
-          <span className="text-xs font-mono tabular-nums text-slate-300">
-            {steps.length} phases
-          </span>
-        </div>
-
-        <div className="grid grid-cols-5 gap-2">
-          {steps.map((step, i) => {
-            let stateClass =
-              'bg-slate-800/90 border-slate-700 text-slate-300';
-            let label = `${i + 1}`;
-
-            if (practice.part === 1) {
-              const placedAt = practice.selectedOrder[i];
-              if (placedAt !== undefined) {
-                const isRight = placedAt === i;
-                stateClass =
-                  practice.orderOk || practice.revealed
-                    ? 'bg-teal-600/30 border-teal-400 text-white'
-                    : isRight && practice.tries > 0
-                    ? 'bg-emerald-600/25 border-emerald-400 text-emerald-100'
-                    : 'bg-slate-700 border-teal-400/70 text-white';
-                label = `${placedAt + 1}`;
-              }
-            } else if (practice.part === 2) {
-              const q = practice.nextQuestions[practice.questionIdx];
-              if (i === q.promptIdx) {
-                stateClass = 'bg-teal-600/40 border-teal-400 text-white';
-              } else if (i === q.rightIdx) {
-                stateClass =
-                  practice.questionPick !== null
-                    ? 'bg-emerald-600/35 border-emerald-400 text-white'
-                    : 'bg-slate-800 border-dashed border-amber-400/80 text-amber-200';
-                label = practice.questionPick !== null ? `${i + 1}` : '?';
-              }
-            } else if (practice.part === 3) {
-              if (i === practice.missingIdx) {
-                stateClass =
-                  practice.missingPick !== null
-                    ? 'bg-emerald-600/35 border-emerald-400 text-white'
-                    : 'bg-slate-800 border-dashed border-amber-400 text-amber-200';
-                label = practice.missingPick !== null ? `${i + 1}` : '?';
-              } else {
-                stateClass = 'bg-slate-800 border-teal-500/40 text-slate-200';
-              }
-            } else {
-              const missed = practice.missedSteps.includes(i);
-              stateClass = missed
-                ? 'bg-amber-600/25 border-amber-400 text-amber-100'
-                : 'bg-emerald-600/25 border-emerald-400 text-emerald-100';
-            }
-
-            return (
-              <div
-                key={i}
-                className={`rounded-xl border p-2 flex flex-col items-center justify-center text-center min-h-[58px] transition-colors ${stateClass}`}
-                title={step}
-              >
-                <span className="font-mono tabular-nums text-xs font-bold">
-                  {label}
-                </span>
-                <span className="text-[10px] leading-tight mt-1 line-clamp-2 opacity-90 hidden sm:block">
-                  {practice.part === 3 &&
-                  i === practice.missingIdx &&
-                  practice.missingPick === null
-                    ? 'Missing'
-                    : step.split(' ').slice(0, 3).join(' ')}
-                </span>
-              </div>
-            );
-          })}
+      <div
+        className="rounded-xl flex flex-col items-center justify-center text-center text-slate-400 text-[11px] mb-3"
+        style={{
+          height: '96px',
+          background: 'radial-gradient(ellipse at center, #334155 0%, #0f172a 100%)',
+          borderRadius: '12px',
+          padding: '12px',
+        }}
+      >
+        <div className="w-[30px] h-[30px] border-2 border-teal-400 bg-teal-400/20 rounded-md mb-1.5 animate-sp" />
+        <div>
+          3D practice scene (coming soon)
+          <br />
+          <span className="text-slate-300 font-medium">{video.title}</span>
         </div>
       </div>
     );
@@ -254,7 +184,7 @@ export const ProcedureDetailModal: React.FC<ProcedureDetailModalProps> = ({
 
       return (
         <div className="space-y-4">
-          {renderSequenceStage()}
+          {renderSimulationStage()}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center">
             <div className="text-3xl font-display font-extrabold text-teal-600 tabular-nums">
               {firstTryCorrect} of {totalItems}
@@ -378,7 +308,7 @@ export const ProcedureDetailModal: React.FC<ProcedureDetailModalProps> = ({
                 {scoreBurst.label}
               </div>
             )}
-            {renderSequenceStage()}
+            {renderSimulationStage()}
             <button
               type="button"
               onClick={() => onChangeTab('watch')}
