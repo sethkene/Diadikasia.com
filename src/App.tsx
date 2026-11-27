@@ -15,7 +15,7 @@ import { FriendsView } from './components/FriendsView';
 import { InstructorApplyModal } from './components/InstructorApplyModal';
 import { ProcedureCard } from './components/ProcedureCard';
 import { ProcedureDetailModal } from './components/ProcedureDetailModal';
-import { ProfileView } from './components/ProfileView';
+import { ProfileView, type AdminSection } from './components/ProfileView';
 import { ReelsView } from './components/ReelsView';
 import { ReviewQueueModal } from './components/ReviewQueueModal';
 import { SplashAuth, type AuthNotice } from './components/SplashAuth';
@@ -44,6 +44,9 @@ import type {
   ContributeForm,
   DetailTab,
   Discipline,
+  FeedbackCategory,
+  FeedbackItem,
+  FeedbackStatus,
   Friend,
   FriendRequestItem,
   InstructorApplication,
@@ -138,6 +141,7 @@ import {
   cancelFriendRequestInSupabase,
   fetchDiscoverPeopleFromSupabase,
   fetchFriendshipsFromSupabase,
+  isAdministrativeRole,
   respondToFriendRequestInSupabase,
   sendFriendRequestInSupabase,
   subscribeToFriendshipsUpdates,
@@ -158,6 +162,13 @@ import {
   subscribeToNotifications,
   mapNotificationRow,
 } from './services/notifications';
+import {
+  fetchAllFeedbackForAdminFromSupabase,
+  fetchMyFeedbackFromSupabase,
+  submitFeedbackToSupabase,
+  subscribeToFeedbackUpdates,
+  updateFeedbackByAdminInSupabase,
+} from './services/feedback';
 
 const NAV_ITEMS: Array<{
   id: MainTab;
@@ -352,6 +363,20 @@ export default function App() {
       ? []
       : readStored(STORAGE_KEYS.notifications, INITIAL_NOTIFICATIONS),
   );
+  const [myFeedback, setMyFeedback] = useState<FeedbackItem[]>([]);
+  const [myFeedbackLoading, setMyFeedbackLoading] = useState<boolean>(false);
+  const [myFeedbackError, setMyFeedbackError] = useState<string | null>(null);
+  const [adminFeedback, setAdminFeedback] = useState<FeedbackItem[]>([]);
+  const [adminFeedbackLoading, setAdminFeedbackLoading] =
+    useState<boolean>(false);
+  const [adminFeedbackError, setAdminFeedbackError] = useState<string | null>(
+    null,
+  );
+  const [highlightedFeedbackId, setHighlightedFeedbackId] = useState<
+    number | null
+  >(null);
+  const [requestedAdminTab, setRequestedAdminTab] =
+    useState<AdminSection | null>(null);
 
   const [submissionsQueue, setSubmissionsQueue] = useState<SubmissionItem[]>(() =>
     isSupabaseConfigured
@@ -391,6 +416,8 @@ export default function App() {
   const filterRequestIdRef = useRef<number>(0);
   const userRef = useRef<UserProfile>(user);
   userRef.current = user;
+  const accountsRef = useRef<UserProfile[]>(accounts);
+  accountsRef.current = accounts;
   const activeChatRef = useRef<string | null>(activeChat);
   activeChatRef.current = activeChat;
   const activeTabRef = useRef<MainTab>(activeTab);
@@ -558,9 +585,10 @@ export default function App() {
   const refreshFriendshipsState = useCallback(
     async (activeUserId: string, showSpinner = false) => {
       if (!isSupabaseConfigured || !activeUserId) return;
+      const role = userRef.current.role;
       if (showSpinner) setFriendsLoading(true);
       try {
-        const res = await fetchFriendshipsFromSupabase(activeUserId);
+        const res = await fetchFriendshipsFromSupabase(activeUserId, role);
         if (res.error) {
           setFriendsError(res.error);
           if (showSpinner) {
@@ -573,6 +601,12 @@ export default function App() {
           setFriends(res.friends);
           setIncomingRequests(res.incomingRequests);
           setOutgoingRequests(res.outgoingRequests);
+          if (
+            activeChatRef.current &&
+            !res.friends.some((f) => f.name === activeChatRef.current)
+          ) {
+            setActiveChat(null);
+          }
           void refreshChatsState(activeUserId, res.friends, false);
         }
       } finally {
@@ -594,7 +628,10 @@ export default function App() {
       discoverRefreshInFlightRef.current = true;
       if (showSpinner) setDiscoverLoading(true);
       try {
-        const res = await fetchDiscoverPeopleFromSupabase(activeUserId);
+        const res = await fetchDiscoverPeopleFromSupabase(
+          activeUserId,
+          userRef.current.role,
+        );
         if (res.error) {
           setDiscoverError(res.error);
           if (showSpinner) {
@@ -608,6 +645,44 @@ export default function App() {
       } finally {
         discoverRefreshInFlightRef.current = false;
         if (showSpinner) setDiscoverLoading(false);
+      }
+    },
+    [],
+  );
+
+  const refreshMyFeedbackState = useCallback(
+    async (activeUserId: string, showSpinner = false) => {
+      if (!isSupabaseConfigured || !activeUserId) return;
+      if (showSpinner) setMyFeedbackLoading(true);
+      try {
+        const res = await fetchMyFeedbackFromSupabase(activeUserId);
+        if (res.error) {
+          setMyFeedbackError(res.error);
+        } else {
+          setMyFeedbackError(null);
+          setMyFeedback(res.items);
+        }
+      } finally {
+        if (showSpinner) setMyFeedbackLoading(false);
+      }
+    },
+    [],
+  );
+
+  const refreshAdminFeedbackState = useCallback(
+    async (directoryAccounts: UserProfile[], showSpinner = false) => {
+      if (!isSupabaseConfigured || userRef.current.role !== 'admin') return;
+      if (showSpinner) setAdminFeedbackLoading(true);
+      try {
+        const res = await fetchAllFeedbackForAdminFromSupabase(directoryAccounts);
+        if (res.error) {
+          setAdminFeedbackError(res.error);
+        } else {
+          setAdminFeedbackError(null);
+          setAdminFeedback(res.items);
+        }
+      } finally {
+        if (showSpinner) setAdminFeedbackLoading(false);
       }
     },
     [],
@@ -634,6 +709,12 @@ export default function App() {
         (activeUser.role === 'sub_admin' &&
           Boolean(activeUser.permissions?.canModeratePosts));
 
+      if (isAdminUser) {
+        setAdminFeedbackLoading(true);
+      } else {
+        setMyFeedbackLoading(true);
+      }
+
       try {
         const [
           directory,
@@ -651,6 +732,7 @@ export default function App() {
           friendshipsRes,
           discoverRes,
           notifsRes,
+          myFeedbackRes,
         ] = await Promise.all([
           fetchDirectoryProfiles(isAdminUser),
           fetchInstructorApplications(),
@@ -674,18 +756,30 @@ export default function App() {
           fetchVisibleReelsPage({ offset: 0, limit: 20 }),
           fetchMyReelLikes(activeUser.id),
           fetchMyReelSignals(activeUser.id),
-          fetchFriendshipsFromSupabase(activeUser.id),
-          fetchDiscoverPeopleFromSupabase(activeUser.id),
+          fetchFriendshipsFromSupabase(activeUser.id, activeUser.role),
+          fetchDiscoverPeopleFromSupabase(activeUser.id, activeUser.role),
           fetchNotificationsFromSupabase(activeUser.id),
+          isAdminUser
+            ? Promise.resolve({
+                items: [] as FeedbackItem[],
+                error: undefined as string | undefined,
+              })
+            : fetchMyFeedbackFromSupabase(activeUser.id),
         ]);
 
-        const [milestonesRes, chatsRes] = await Promise.all([
+        const [milestonesRes, chatsRes, adminFeedbackRes] = await Promise.all([
           fetchPracticeMilestonesFromSupabase(directory, procsRes.procedures),
           !friendshipsRes.error
             ? fetchAllChatsFromSupabase(activeUser.id, friendshipsRes.friends)
             : Promise.resolve({
                 chats: {} as Record<string, ChatMessage[]>,
                 unreadCounts: {} as Record<string, number>,
+                error: undefined as string | undefined,
+              }),
+          isAdminUser
+            ? fetchAllFeedbackForAdminFromSupabase(directory)
+            : Promise.resolve({
+                items: [] as FeedbackItem[],
                 error: undefined as string | undefined,
               }),
         ]);
@@ -791,6 +885,12 @@ export default function App() {
           setFriends(friendshipsRes.friends);
           setIncomingRequests(friendshipsRes.incomingRequests);
           setOutgoingRequests(friendshipsRes.outgoingRequests);
+          if (
+            activeChatRef.current &&
+            !friendshipsRes.friends.some((f) => f.name === activeChatRef.current)
+          ) {
+            setActiveChat(null);
+          }
         }
 
         if (chatsRes.error) {
@@ -818,12 +918,34 @@ export default function App() {
         } else {
           setNotifications([]);
         }
+
+        if (isAdminUser) {
+          setMyFeedback([]);
+          setMyFeedbackError(null);
+          if (adminFeedbackRes.error) {
+            setAdminFeedbackError(adminFeedbackRes.error);
+          } else {
+            setAdminFeedbackError(null);
+            setAdminFeedback(adminFeedbackRes.items);
+          }
+        } else {
+          setAdminFeedback([]);
+          setAdminFeedbackError(null);
+          if (myFeedbackRes.error) {
+            setMyFeedbackError(myFeedbackRes.error);
+          } else {
+            setMyFeedbackError(null);
+            setMyFeedback(myFeedbackRes.items);
+          }
+        }
       } finally {
         setProceduresLoading(false);
         setReelsLoading(false);
         setFriendsLoading(false);
         setDiscoverLoading(false);
         setChatsLoading(false);
+        setMyFeedbackLoading(false);
+        setAdminFeedbackLoading(false);
       }
     },
     [applyLikedBaseline, applyReelLikedBaseline, syncChatIdsIntoRef],
@@ -992,6 +1114,12 @@ export default function App() {
       setBusyChatMsgIds(new Set());
       seenChatMsgIdsRef.current.clear();
       setNotifications([]);
+      setMyFeedback([]);
+      setMyFeedbackError(null);
+      setAdminFeedback([]);
+      setAdminFeedbackError(null);
+      setHighlightedFeedbackId(null);
+      setRequestedAdminTab(null);
       if (notice) {
         setAuthNotice(notice);
       }
@@ -1301,7 +1429,7 @@ export default function App() {
     });
   }, [screen, user.id, refreshFriendshipsState]);
 
-  // Refresh Discover People from get_public_directory() when opening/revisiting Friends tab
+  // Refresh Discover People & Friendships from DB when opening/revisiting Friends tab
   useEffect(() => {
     if (
       screen !== 'app' ||
@@ -1311,8 +1439,15 @@ export default function App() {
     ) {
       return;
     }
+    void refreshFriendshipsState(user.id, false);
     void refreshDiscoverPeopleState(user.id, false, false);
-  }, [screen, activeTab, user.id, refreshDiscoverPeopleState]);
+  }, [
+    screen,
+    activeTab,
+    user.id,
+    refreshFriendshipsState,
+    refreshDiscoverPeopleState,
+  ]);
 
   // Subscribe to Realtime chat messages & read-status updates
   useEffect(() => {
@@ -1455,6 +1590,27 @@ export default function App() {
       },
     });
   }, [screen, user.id]);
+
+  // Subscribe to Realtime Feedback updates (status/reply for user, new/updated for Supreme Admin)
+  useEffect(() => {
+    if (screen !== 'app' || !isSupabaseConfigured || !user.id) return;
+    const currentUserId = user.id;
+    const isAdminUser = user.role === 'admin';
+
+    return subscribeToFeedbackUpdates(currentUserId, isAdminUser, () => {
+      if (isAdminUser) {
+        void refreshAdminFeedbackState(accountsRef.current, false);
+      } else {
+        void refreshMyFeedbackState(currentUserId, false);
+      }
+    });
+  }, [
+    screen,
+    user.id,
+    user.role,
+    refreshAdminFeedbackState,
+    refreshMyFeedbackState,
+  ]);
 
   // Persist recommender reel signals to Supabase (debounced)
   useEffect(() => {
@@ -1619,6 +1775,12 @@ export default function App() {
       setChats({});
       setUnreadCounts({});
       setNotifications([]);
+      setMyFeedback([]);
+      setMyFeedbackError(null);
+      setAdminFeedback([]);
+      setAdminFeedbackError(null);
+      setHighlightedFeedbackId(null);
+      setRequestedAdminTab(null);
     }
     setScreen('auth');
     setAuthMode('in');
@@ -2873,10 +3035,8 @@ export default function App() {
     const roleLabel =
       user.role === 'instructor'
         ? 'Clinical instructor'
-        : user.role === 'admin'
-        ? 'Supreme Admin'
-        : user.role === 'sub_admin'
-        ? 'Staff'
+        : user.role === 'admin' || user.role === 'sub_admin'
+        ? 'Contributor'
         : 'Learner';
 
     const newPost: ReelPost = {
@@ -3106,6 +3266,13 @@ export default function App() {
       return;
     }
 
+    if (isAdministrativeRole(user.role)) {
+      showToast(
+        'Administrative accounts are private and cannot initiate friend requests.',
+      );
+      return;
+    }
+
     const busyKey = `add:${person.id}`;
     if (busyFriendIds.has(busyKey)) return;
     setFriendBusy(busyKey, true);
@@ -3113,6 +3280,7 @@ export default function App() {
       const { request, error } = await sendFriendRequestInSupabase(
         user.id,
         person.id,
+        user.role,
       );
       if (error || !request) {
         showToast(error || 'Unable to send friend request.');
@@ -3574,7 +3742,11 @@ export default function App() {
     if (!user.id) return;
 
     let nextStatus: 'accepted' | 'declined' | 'done' | 'seen' = 'accepted';
-    if (target.type === 'remind') {
+    if (
+      target.type === 'remind' ||
+      target.type === 'feedback_new' ||
+      target.type === 'feedback_update'
+    ) {
       nextStatus = 'done';
     } else if (target.type === 'invite') {
       nextStatus = accept ? 'accepted' : 'declined';
@@ -3608,8 +3780,173 @@ export default function App() {
       showToast(accept ? 'Study invite accepted.' : 'Study invite declined.');
     } else if (target.type === 'remind') {
       showToast('Reminder marked as done.');
+    } else if (
+      target.type === 'feedback_new' ||
+      target.type === 'feedback_update'
+    ) {
+      showToast('Feedback notification marked as done.');
     } else {
       showToast('Notification updated.');
+    }
+  };
+
+  const handleSubmitFeedback = async (params: {
+    category: FeedbackCategory;
+    subject: string;
+    message: string;
+    isAnonymous: boolean;
+    file?: File | null;
+  }): Promise<{ item?: FeedbackItem; error?: string }> => {
+    if (!isSupabaseConfigured) {
+      const ref = `FDK-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+      const now = new Date().toISOString();
+      const item: FeedbackItem = {
+        id: nextIdRef.current++,
+        referenceNumber: ref,
+        userId: params.isAnonymous ? null : user.id || 'local-user',
+        submitterName: params.isAnonymous ? undefined : user.name,
+        submitterEmail: params.isAnonymous ? undefined : user.email,
+        category: params.category,
+        subject: params.subject,
+        message: params.message,
+        isAnonymous: params.isAnonymous,
+        attachmentName: params.file?.name,
+        status: 'received',
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (!params.isAnonymous) {
+        setMyFeedback((prev) => [item, ...prev]);
+      }
+      setAdminFeedback((prev) => [item, ...prev]);
+      showToast(`Feedback submitted (${ref}).`);
+      return { item };
+    }
+
+    if (!user.id) {
+      return { error: 'Please sign in before submitting feedback.' };
+    }
+
+    const res = await submitFeedbackToSupabase({
+      userId: user.id,
+      category: params.category,
+      subject: params.subject,
+      message: params.message,
+      isAnonymous: params.isAnonymous,
+      file: params.file,
+    });
+    if (res.error || !res.item) {
+      return { error: res.error || 'Unable to submit feedback.' };
+    }
+
+    if (!res.item.isAnonymous) {
+      setMyFeedback((prev) => [
+        res.item!,
+        ...prev.filter((f) => f.id !== res.item!.id),
+      ]);
+    }
+    showToast(`Feedback received (${res.item.referenceNumber}).`);
+    return { item: res.item };
+  };
+
+  const handleAdminUpdateFeedback = async (params: {
+    feedbackId: number;
+    status: FeedbackStatus;
+    adminResponse: string;
+    internalNote: string;
+  }): Promise<{ error?: string }> => {
+    if (!isAdmin) {
+      return { error: 'Only Supreme Admin can manage platform feedback.' };
+    }
+
+    if (!isSupabaseConfigured) {
+      const now = new Date().toISOString();
+      setAdminFeedback((prev) =>
+        prev.map((item) => {
+          if (item.id !== params.feedbackId) return item;
+          const trimmedResp = params.adminResponse.trim();
+          const trimmedNote = params.internalNote.trim();
+          const nextNotes = trimmedNote
+            ? [
+                {
+                  id: nextIdRef.current++,
+                  feedbackId: item.id,
+                  authorName: user.name || 'Supreme Admin',
+                  note: trimmedNote,
+                  statusAtTime: params.status,
+                  createdAt: now,
+                },
+                ...(item.internalNotes || []),
+              ]
+            : item.internalNotes || [];
+          return {
+            ...item,
+            status: params.status,
+            adminResponse: trimmedResp || undefined,
+            respondedAt: trimmedResp ? now : item.respondedAt,
+            resolvedAt:
+              params.status === 'resolved' || params.status === 'closed'
+                ? item.resolvedAt || now
+                : undefined,
+            updatedAt: now,
+            internalNotes: nextNotes,
+          };
+        }),
+      );
+      showToast('Feedback updated.');
+      return {};
+    }
+
+    if (!user.id) {
+      return { error: 'Please sign in as Supreme Admin.' };
+    }
+
+    const res = await updateFeedbackByAdminInSupabase({
+      feedbackId: params.feedbackId,
+      adminId: user.id,
+      adminName: user.name || 'Supreme Admin',
+      status: params.status,
+      adminResponse: params.adminResponse,
+      internalNote: params.internalNote,
+    });
+
+    if (res.error) {
+      return { error: res.error };
+    }
+
+    await refreshAdminFeedbackState(accounts, false);
+    showToast('Feedback updated.');
+    return {};
+  };
+
+  const handleOpenFeedbackNotification = (notif: NotificationItem) => {
+    setSheet(null);
+    setActiveTab('me');
+    setHighlightedFeedbackId(notif.feedbackId ?? null);
+    if (notif.type === 'feedback_new' && isAdmin) {
+      setRequestedAdminTab('feedback');
+    }
+    if (
+      isSupabaseConfigured &&
+      user.id &&
+      (notif.status === 'pending' || notif.status === 'seen')
+    ) {
+      void updateNotificationStatusInSupabase(notif.id, user.id, 'done').then(
+        ({ readAt }) => {
+          setNotifications((prev) =>
+            prev.map((n) =>
+              n.id === notif.id
+                ? {
+                    ...n,
+                    status: 'done',
+                    readAt:
+                      readAt !== undefined ? readAt : new Date().toISOString(),
+                  }
+                : n,
+            ),
+          );
+        },
+      );
     }
   };
 
@@ -4122,6 +4459,7 @@ export default function App() {
             onOpenProfile={(personName) =>
               setSheet({ kind: 'profile', by: personName })
             }
+            isAdministrativeAccount={isAdministrativeRole(user.role)}
           />
         )}
 
@@ -4159,6 +4497,24 @@ export default function App() {
               setSheet({ kind: 'profile', by: instructorName })
             }
             onSignOut={handleSignOut}
+            myFeedback={myFeedback}
+            myFeedbackLoading={myFeedbackLoading}
+            myFeedbackError={myFeedbackError}
+            onRetryMyFeedback={() => {
+              if (user.id) void refreshMyFeedbackState(user.id, true);
+            }}
+            onSubmitFeedback={handleSubmitFeedback}
+            adminFeedback={adminFeedback}
+            adminFeedbackLoading={adminFeedbackLoading}
+            adminFeedbackError={adminFeedbackError}
+            onRetryAdminFeedback={() => {
+              void refreshAdminFeedbackState(accounts, true);
+            }}
+            onAdminUpdateFeedback={handleAdminUpdateFeedback}
+            highlightedFeedbackId={highlightedFeedbackId}
+            onClearFeedbackHighlight={() => setHighlightedFeedbackId(null)}
+            requestedAdminTab={requestedAdminTab}
+            onClearRequestedAdminTab={() => setRequestedAdminTab(null)}
           />
         )}
       </main>
@@ -4297,6 +4653,7 @@ export default function App() {
         onShareToFriend={handleShareToFriend}
         onSubmitReport={handleSubmitReport}
         onOpenVideo={(id) => openProcedure(id, 'watch')}
+        onOpenFeedbackNotification={handleOpenFeedbackNotification}
         onClose={() => {
           setEditingPostId(null);
           postFileRef.current = null;

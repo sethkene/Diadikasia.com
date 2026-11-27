@@ -32,10 +32,12 @@ interface FriendshipRow {
   created_at: string;
 }
 
+export function isAdministrativeRole(role: UserRole | string | undefined): boolean {
+  return role === 'admin' || role === 'sub_admin';
+}
+
 export function formatUserRoleLabel(role: UserRole | string | undefined): string {
   if (role === 'instructor') return 'Clinical instructor';
-  if (role === 'admin') return 'Clinical director';
-  if (role === 'sub_admin') return 'Clinical reviewer & staff';
   return 'Learner';
 }
 
@@ -53,12 +55,14 @@ async function fetchSafeDirectoryMap(): Promise<{
     return { byId: new Map(), entries: [], error: error.message };
   }
 
-  const entries = ((data || []) as PublicDirectoryEntry[]).map((row) => ({
-    id: row.id,
-    name: row.name,
-    role: row.role,
-    qualifications: row.qualifications,
-  }));
+  const entries = ((data || []) as PublicDirectoryEntry[])
+    .filter((row) => !isAdministrativeRole(row.role))
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      role: row.role,
+      qualifications: row.qualifications,
+    }));
 
   return {
     byId: new Map(entries.map((e) => [e.id, e])),
@@ -68,6 +72,7 @@ async function fetchSafeDirectoryMap(): Promise<{
 
 export async function fetchDiscoverPeopleFromSupabase(
   currentUserId: string,
+  currentUserRole?: UserRole,
 ): Promise<{
   people: PersonCandidate[];
   error?: string;
@@ -77,6 +82,9 @@ export async function fetchDiscoverPeopleFromSupabase(
   }
   if (!isValidUuid(currentUserId)) {
     return { people: [], error: 'Sign in to discover people on Diadikasia.' };
+  }
+  if (isAdministrativeRole(currentUserRole)) {
+    return { people: [] };
   }
 
   const { entries, error } = await fetchSafeDirectoryMap();
@@ -98,6 +106,7 @@ export async function fetchDiscoverPeopleFromSupabase(
 
 export async function fetchFriendshipsFromSupabase(
   currentUserId: string,
+  currentUserRole?: UserRole,
 ): Promise<{
   friends: Friend[];
   incomingRequests: FriendRequestItem[];
@@ -114,6 +123,9 @@ export async function fetchFriendshipsFromSupabase(
       outgoingRequests: [],
       error: 'Please sign in to load your friends.',
     };
+  }
+  if (isAdministrativeRole(currentUserRole)) {
+    return { friends: [], incomingRequests: [], outgoingRequests: [] };
   }
 
   const [friendshipsRes, directoryRes] = await Promise.all([
@@ -154,9 +166,13 @@ export async function fetchFriendshipsFromSupabase(
     const isRequester = row.requester_id === currentUserId;
     const otherUserId = isRequester ? row.addressee_id : row.requester_id;
     const otherProfile = byId.get(otherUserId);
-    const otherName = otherProfile?.name || 'Diadikasia Member';
-    const otherRole = formatUserRoleLabel(otherProfile?.role);
-    const otherQuals = otherProfile?.qualifications || undefined;
+    // Exclude hidden/administrative accounts omitted from get_public_directory()
+    if (!otherProfile || isAdministrativeRole(otherProfile.role)) {
+      continue;
+    }
+    const otherName = otherProfile.name;
+    const otherRole = formatUserRoleLabel(otherProfile.role);
+    const otherQuals = otherProfile.qualifications || undefined;
 
     if (row.status === 'accepted') {
       friends.push({
@@ -204,6 +220,7 @@ export async function fetchFriendshipsFromSupabase(
 export async function sendFriendRequestInSupabase(
   requesterId: string,
   addresseeId: string,
+  requesterRole?: UserRole,
 ): Promise<{
   request?: FriendRequestItem;
   error?: string;
@@ -216,6 +233,12 @@ export async function sendFriendRequestInSupabase(
   }
   if (requesterId === addresseeId) {
     return { error: 'You cannot send a friend request to yourself.' };
+  }
+  if (isAdministrativeRole(requesterRole)) {
+    return {
+      error:
+        'Administrative accounts are private and cannot initiate friend requests.',
+    };
   }
 
   const { data: existingRows, error: checkErr } = await supabase
@@ -271,6 +294,14 @@ export async function sendFriendRequestInSupabase(
       return {
         error: 'A friend request or connection already exists with this user.',
       };
+    }
+    const rawMsg = (insertErr?.message || '').toLowerCase();
+    if (
+      rawMsg.includes('administrative') ||
+      rawMsg.includes('row-level security') ||
+      rawMsg.includes('permission denied')
+    ) {
+      return { error: 'Unable to send friend request to this user.' };
     }
     return { error: insertErr?.message || 'Unable to send friend request.' };
   }

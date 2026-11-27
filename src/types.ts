@@ -202,14 +202,59 @@ export interface NotificationItem {
   id: number;
   recipientId?: string;
   actorId?: string;
-  type: 'invite' | 'req' | 'remind';
+  type: 'invite' | 'req' | 'remind' | 'feedback_new' | 'feedback_update';
   from: string;
   vid?: number;
   when?: string;
   status: 'pending' | 'accepted' | 'declined' | 'done' | 'seen';
   readAt?: string | null;
   chatMessageId?: number;
+  feedbackId?: number;
   createdAt?: string;
+}
+
+export type FeedbackCategory =
+  | 'suggestions'
+  | 'complaints'
+  | 'technical'
+  | 'safety';
+
+export type FeedbackStatus =
+  | 'received'
+  | 'under_review'
+  | 'resolved'
+  | 'closed';
+
+export interface FeedbackInternalNote {
+  id: number;
+  feedbackId: number;
+  authorId?: string;
+  authorName: string;
+  note: string;
+  statusAtTime: FeedbackStatus;
+  createdAt: string;
+}
+
+export interface FeedbackItem {
+  id: number;
+  referenceNumber: string;
+  userId?: string | null;
+  submitterName?: string;
+  submitterEmail?: string;
+  category: FeedbackCategory;
+  subject: string;
+  message: string;
+  isAnonymous: boolean;
+  attachmentPath?: string;
+  attachmentName?: string;
+  attachmentUrl?: string;
+  status: FeedbackStatus;
+  adminResponse?: string;
+  respondedAt?: string;
+  resolvedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  internalNotes?: FeedbackInternalNote[];
 }
 
 export type SubmissionStatus = 'pending' | 'ok' | 'chg' | 'rej';

@@ -288,10 +288,8 @@ export async function createReelInSupabase(params: {
   const roleLabel =
     user.role === 'instructor'
       ? 'Clinical instructor'
-      : user.role === 'admin'
-      ? 'Supreme Admin'
-      : user.role === 'sub_admin'
-      ? 'Staff'
+      : user.role === 'admin' || user.role === 'sub_admin'
+      ? 'Contributor'
       : 'Learner';
 
   const isVerifiedAuthor =

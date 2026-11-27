@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   CheckCircle2,
   ClipboardCheck,
@@ -13,6 +13,9 @@ import {
   Video,
 } from 'lucide-react';
 import type {
+  FeedbackCategory,
+  FeedbackItem,
+  FeedbackStatus,
   InstructorApplication,
   ProcedureVideo,
   ReelPost,
@@ -22,6 +25,8 @@ import type {
   UserProfile,
 } from '../types';
 import { getInitials } from '../utils/format';
+import { AdminFeedbackTab } from './AdminFeedbackTab';
+import { FeedbackCentreSection } from './FeedbackCentreSection';
 import { ProcedureCard } from './ProcedureCard';
 
 interface ProfileViewProps {
@@ -57,6 +62,31 @@ interface ProfileViewProps {
   onOpenVideo: (id: number) => void;
   onOpenInstructorProfile?: (instructorName: string) => void;
   onSignOut: () => void;
+  myFeedback?: FeedbackItem[];
+  myFeedbackLoading?: boolean;
+  myFeedbackError?: string | null;
+  onRetryMyFeedback?: () => void;
+  onSubmitFeedback?: (params: {
+    category: FeedbackCategory;
+    subject: string;
+    message: string;
+    isAnonymous: boolean;
+    file?: File | null;
+  }) => Promise<{ item?: FeedbackItem; error?: string }>;
+  adminFeedback?: FeedbackItem[];
+  adminFeedbackLoading?: boolean;
+  adminFeedbackError?: string | null;
+  onRetryAdminFeedback?: () => void;
+  onAdminUpdateFeedback?: (params: {
+    feedbackId: number;
+    status: FeedbackStatus;
+    adminResponse: string;
+    internalNote: string;
+  }) => Promise<{ error?: string }>;
+  highlightedFeedbackId?: number | null;
+  onClearFeedbackHighlight?: () => void;
+  requestedAdminTab?: AdminSection | null;
+  onClearRequestedAdminTab?: () => void;
 }
 
 const STATUS_LABELS: Record<SubmissionItem['status'], string> = {
@@ -66,11 +96,12 @@ const STATUS_LABELS: Record<SubmissionItem['status'], string> = {
   rej: 'Not published',
 };
 
-type AdminSection =
+export type AdminSection =
   | 'applications'
   | 'instructors'
   | 'staff'
   | 'moderation'
+  | 'feedback'
   | 'users';
 
 function formatYoutubeHref(handle: string): string {
@@ -112,6 +143,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenVideo,
   onOpenInstructorProfile,
   onSignOut,
+  myFeedback = [],
+  myFeedbackLoading = false,
+  myFeedbackError = null,
+  onRetryMyFeedback,
+  onSubmitFeedback,
+  adminFeedback = [],
+  adminFeedbackLoading = false,
+  adminFeedbackError = null,
+  onRetryAdminFeedback,
+  onAdminUpdateFeedback,
+  highlightedFeedbackId = null,
+  onClearFeedbackHighlight,
+  requestedAdminTab = null,
+  onClearRequestedAdminTab,
 }) => {
   const [adminTab, setAdminTab] = useState<AdminSection>('applications');
   const [declineNotes, setDeclineNotes] = useState<Record<number, string>>({});
@@ -123,6 +168,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [staffErr, setStaffErr] = useState('');
   const [staffSaving, setStaffSaving] = useState(false);
   const [userSearch, setUserSearch] = useState('');
+
+  useEffect(() => {
+    if (user.role !== 'admin') {
+      if (adminTab !== 'applications') {
+        setAdminTab('applications');
+      }
+      return;
+    }
+    if (requestedAdminTab) {
+      setAdminTab(requestedAdminTab);
+      onClearRequestedAdminTab?.();
+    }
+  }, [requestedAdminTab, user.role, adminTab, onClearRequestedAdminTab]);
 
   const pendingVideosCount = submissions.filter(
     (s) => s.status === 'pending',
@@ -189,6 +247,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       </span>
     </label>
   );
+
+  const renderFeedbackCentre = () => {
+    if (!onSubmitFeedback) return null;
+    return (
+      <FeedbackCentreSection
+        items={myFeedback}
+        loading={myFeedbackLoading}
+        error={myFeedbackError}
+        onRetry={onRetryMyFeedback}
+        onSubmit={onSubmitFeedback}
+        highlightedFeedbackId={highlightedFeedbackId}
+        onClearHighlight={onClearFeedbackHighlight}
+      />
+    );
+  };
 
   const renderReportedPostsList = () => (
     <div className="space-y-3">
@@ -347,6 +420,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </div>
 
+          {renderFeedbackCentre()}
+
           {renderPracticePopupToggle()}
 
           <button
@@ -478,6 +553,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             )}
           </div>
 
+          {renderFeedbackCentre()}
+
           {renderPracticePopupToggle()}
 
           <button
@@ -589,6 +666,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
           )}
 
+          {renderFeedbackCentre()}
+
           {renderPracticePopupToggle()}
 
           <button
@@ -696,6 +775,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               'moderation',
               `Reviews & Reports (${pendingVideosCount + openReports.length})`,
             ],
+            ['feedback', `Feedback (${adminFeedback.length})`],
             ['users', `Users (${accounts.length})`],
           ] as Array<[AdminSection, string]>
         ).map(([id, label]) => (
@@ -1194,7 +1274,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
-      {/* Tab 5: User Management & Platform Oversight */}
+      {/* Tab 5: Feedback Management (Supreme Admin only) */}
+      {adminTab === 'feedback' && onAdminUpdateFeedback && (
+        <AdminFeedbackTab
+          items={adminFeedback}
+          loading={adminFeedbackLoading}
+          error={adminFeedbackError}
+          onRetry={onRetryAdminFeedback}
+          onUpdateFeedback={onAdminUpdateFeedback}
+          selectedFeedbackId={highlightedFeedbackId}
+          onSelectFeedbackId={(id) => {
+            if (id === null) onClearFeedbackHighlight?.();
+          }}
+        />
+      )}
+
+      {/* Tab 6: User Management & Platform Oversight */}
       {adminTab === 'users' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

@@ -68,6 +68,7 @@ interface FriendsViewProps {
   onOpenStudyInvite: () => void;
   onSendReminder: (friendName: string, messageIndex: number) => void;
   onOpenProfile: (name: string) => void;
+  isAdministrativeAccount?: boolean;
 }
 
 export const FriendsView: React.FC<FriendsViewProps> = ({
@@ -104,6 +105,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
   onOpenStudyInvite,
   onSendReminder,
   onOpenProfile,
+  isAdministrativeAccount = false,
 }) => {
   const [friendQuery, setFriendQuery] = useState('');
   const [draftMsg, setDraftMsg] = useState('');
@@ -408,6 +410,17 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
       {/* Left column: Add friend + Friends list */}
       <div className="lg:col-span-5 space-y-5">
+        {isAdministrativeAccount ? (
+          <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-1.5">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Account privacy active
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Administrative accounts are private across Diadikasia and do not
+              appear in learner directories or send and receive friend requests.
+            </p>
+          </div>
+        ) : (
         <div className="bg-white border border-slate-200 rounded-2xl p-4">
           <label
             htmlFor="friend-search"
@@ -581,6 +594,7 @@ export const FriendsView: React.FC<FriendsViewProps> = ({
             <span>Invite someone who isn’t on Diadikasia</span>
           </button>
         </div>
+        )}
 
         {incomingRequests.length > 0 && (
           <div className="bg-white border border-slate-200 rounded-2xl p-4">

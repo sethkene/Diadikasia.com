@@ -61,6 +61,7 @@ interface BottomSheetsProps {
   onShareToFriend: (friendName: string, postId: number) => void;
   onSubmitReport: (postId: number, reason: string) => void;
   onOpenVideo: (videoId: number) => void;
+  onOpenFeedbackNotification?: (notif: NotificationItem) => void;
   onClose: () => void;
 }
 
@@ -111,6 +112,7 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
   onShareToFriend,
   onSubmitReport,
   onOpenVideo,
+  onOpenFeedbackNotification,
   onClose,
 }) => {
   const [commentText, setCommentText] = useState('');
@@ -232,6 +234,26 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
         (p) => normalizeName(p.by) === targetKey,
       );
 
+      const isTargetAdmin =
+        account?.role === 'admin' || account?.role === 'sub_admin';
+
+      if (
+        isTargetAdmin &&
+        currentUser.role !== 'admin' &&
+        uploadedVideos.length === 0
+      ) {
+        return (
+          <div className="space-y-3 py-2">
+            <h3 className="font-display font-bold text-base text-slate-900">
+              Profile unavailable
+            </h3>
+            <p className="text-sm text-slate-600">
+              This profile is private and not visible in the public directory.
+            </p>
+          </div>
+        );
+      }
+
       const displayName =
         account?.name ||
         fallbackPerson?.name ||
@@ -251,24 +273,31 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
         rawCredFromSheet ||
         '';
 
+      const sanitizedPostRole =
+        authorPosts[0]?.role === 'Supreme Admin' ||
+        authorPosts[0]?.role === 'Staff'
+          ? 'Contributor'
+          : authorPosts[0]?.role;
+
       const roleLabel =
         account?.role === 'instructor'
           ? 'Verified clinical instructor'
-          : account?.role === 'admin'
-          ? 'Clinical director'
-          : account?.role === 'sub_admin'
-          ? 'Clinical reviewer & staff'
+          : isTargetAdmin
+          ? currentUser.role === 'admin'
+            ? account?.role === 'admin'
+              ? 'Clinical director'
+              : 'Clinical reviewer & staff'
+            : 'Clinical contributor'
           : fallbackPerson?.role === 'Clinical instructor'
           ? 'Verified clinical instructor'
           : fallbackPerson?.role ||
-            authorPosts[0]?.role ||
+            sanitizedPostRole ||
             (uploadedVideos.length > 0 ? 'Clinical instructor' : 'Learner');
 
       const isVerified = Boolean(
         account?.role === 'instructor' ||
-          account?.role === 'admin' ||
+          (currentUser.role === 'admin' && account?.role === 'admin') ||
           fallbackPerson?.role === 'Clinical instructor' ||
-          fallbackPerson?.role === 'Clinical director' ||
           authorPosts.some((p) => p.verified) ||
           uploadedVideos.length > 0,
       );
@@ -702,6 +731,9 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
                   const v = n.vid
                     ? videos.find((x) => x.id === n.vid)
                     : undefined;
+                  const isFeedbackNotif =
+                    n.type === 'feedback_new' || n.type === 'feedback_update';
+
                   return (
                     <div key={n.id} className="py-3">
                       <div className="text-sm text-slate-800">
@@ -722,9 +754,46 @@ export const BottomSheets: React.FC<BottomSheetsProps> = ({
                             <strong>{v?.title}</strong>.
                           </>
                         )}
+                        {n.type === 'feedback_new' && (
+                          <>
+                            New feedback <strong>{n.when || ''}</strong> from{' '}
+                            <strong>{n.from}</strong>.
+                          </>
+                        )}
+                        {n.type === 'feedback_update' && (
+                          <>
+                            Feedback update <strong>{n.when || ''}</strong> from{' '}
+                            <strong>{n.from}</strong>.
+                          </>
+                        )}
                       </div>
 
-                      {n.type === 'remind' ? (
+                      {isFeedbackNotif ? (
+                        <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                          {onOpenFeedbackNotification && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenFeedbackNotification(n)}
+                              className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold min-h-[38px]"
+                            >
+                              {n.type === 'feedback_new'
+                                ? 'Open Feedback'
+                                : 'View reply'}
+                            </button>
+                          )}
+                          {n.status === 'pending' || n.status === 'seen' ? (
+                            <button
+                              type="button"
+                              onClick={() => onRespondNotification(n.id, true)}
+                              className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold min-h-[38px]"
+                            >
+                              Mark done
+                            </button>
+                          ) : (
+                            <span className="text-xs text-slate-500">Done</span>
+                          )}
+                        </div>
+                      ) : n.type === 'remind' ? (
                         n.status === 'pending' || n.status === 'seen' ? (
                           <div className="flex items-center gap-2 mt-2.5">
                             <button

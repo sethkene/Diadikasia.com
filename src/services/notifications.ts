@@ -17,17 +17,18 @@ export interface NotificationRow {
   recipient_id: string;
   actor_id: string | null;
   actor_name: string;
-  type: 'invite' | 'req' | 'remind';
+  type: 'invite' | 'req' | 'remind' | 'feedback_new' | 'feedback_update';
   procedure_id: number | null;
   scheduled_for: string | null;
   status: 'pending' | 'accepted' | 'declined' | 'done' | 'seen';
   read_at: string | null;
   chat_message_id: number | null;
+  feedback_id?: number | null;
   created_at: string;
 }
 
 const NOTIF_SELECT_COLS =
-  'id, recipient_id, actor_id, actor_name, type, procedure_id, scheduled_for, status, read_at, chat_message_id, created_at';
+  'id, recipient_id, actor_id, actor_name, type, procedure_id, scheduled_for, status, read_at, chat_message_id, feedback_id, created_at';
 
 export function mapNotificationRow(row: NotificationRow): NotificationItem {
   return {
@@ -41,6 +42,7 @@ export function mapNotificationRow(row: NotificationRow): NotificationItem {
     status: row.status,
     readAt: row.read_at,
     chatMessageId: row.chat_message_id ?? undefined,
+    feedbackId: row.feedback_id ?? undefined,
     createdAt: row.created_at,
   };
 }
